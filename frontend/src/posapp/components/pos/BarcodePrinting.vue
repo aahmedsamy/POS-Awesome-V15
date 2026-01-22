@@ -423,7 +423,8 @@ export default {
 				item.qty = qty;
 
 				// Generate Barcode
-				item.barcode = this.generateScaleBarcode(item.item_code, weight, price);
+				// Pass the original barcode (from the item) to help extract the item ID
+				item.barcode = this.generateScaleBarcode(item.barcode, weight, price);
 
 				// For scale items, we likely want to add them as new rows always,
 				// or check if exactly same barcode exists.
@@ -847,7 +848,7 @@ export default {
 			const prefix = this.scaleBarcodeSettings?.prefix;
 			return typeof prefix === "string" ? prefix.trim() : "";
 		},
-		generateScaleBarcode(itemCode, weight, price) {
+		generateScaleBarcode(originalBarcode, weight, price) {
 			const settings = this.scaleBarcodeSettings;
 			const prefix = this.getScaleBarcodePrefix();
 			// EAN-13 length is usually 13, but let's assume standard structure or 13 digits
@@ -858,17 +859,7 @@ export default {
 			let barcodeArr = new Array(totalLength).fill("0");
 
 			// Fill Prefix
-			if (settings.prefix_included_or_not) {
-				const p = prefix.split("");
-				for (let i = 0; i < p.length; i++) {
-					barcodeArr[i] = p[i];
-				}
-			} else {
-				// If prefix is not "included" in the setting meaning it might be separate?
-				// But typically scale barcodes start with the prefix.
-				// Let's assume the settings dictate the structure.
-				// If prefix_included_or_not is false, it might mean we skip the prefix chars in parsing?
-				// But here we are generating. We should start with prefix if it exists.
+			if (prefix) {
 				const p = prefix.split("");
 				for (let i = 0; i < p.length; i++) {
 					barcodeArr[i] = p[i];
@@ -876,15 +867,28 @@ export default {
 			}
 
 			// Fill Item Code
-			// Ensure item code is numeric for this standard, or just place it.
 			// Scale barcodes usually use numeric item codes.
-			let code = String(itemCode).replace(/\D/g, "");
-			// Truncate or pad
+			// Try to extract Item Identifier from the original barcode if it matches the prefix
+			let code = "";
 			const codeLen = settings.item_code_total_digits;
+			const codeStart = settings.item_code_starting_digit - 1; // 0-indexed
+
+			if (originalBarcode && originalBarcode.startsWith(prefix)) {
+				// The item ID is embedded in the original barcode
+				// Extract it from the configured position
+				code = String(originalBarcode).substring(codeStart, codeStart + codeLen);
+			}
+
+			// Fallback: if extraction failed or code is empty, try using the passed value (maybe numeric item_code)
+			if (!code || code.length !== codeLen) {
+				// If originalBarcode was passed as just the item code (legacy behavior)
+				code = String(originalBarcode).replace(/\D/g, "");
+			}
+
+			// Truncate or pad
 			if (code.length > codeLen) code = code.substring(0, codeLen);
 			else code = code.padStart(codeLen, "0");
 
-			const codeStart = settings.item_code_starting_digit - 1; // 0-indexed
 			for (let i = 0; i < codeLen; i++) {
 				if (codeStart + i < totalLength) {
 					barcodeArr[codeStart + i] = code[i];
@@ -935,14 +939,23 @@ export default {
 			let sum = 0;
 			for (let i = 0; i < 12; i++) {
 				const n = parseInt(barcodeArr[i] || "0");
+				// EAN-13: Odd positions (Index 0, 2, 4...) are weight 1. Even positions (Index 1, 3, 5...) are weight 3.
+				// My indices are 0-based.
 				if (i % 2 === 0) {
-					// Even index, but Odd position (1st, 3rd...)
-					sum += n;
+					// Index 0 (Pos 1) -> Weight 1
+					sum += n * 1;
 				} else {
-					// Odd index, but Even position (2nd, 4th...)
+					// Index 1 (Pos 2) -> Weight 3
 					sum += n * 3;
 				}
 			}
+
+			const remainder = sum % 10;
+			const checkDigit = remainder === 0 ? 0 : 10 - remainder;
+			barcodeArr[12] = String(checkDigit);
+
+			return barcodeArr.join("");
+		},
 			// Wait, standard says:
 			// "The checksum is a Modulo 10 calculation:
 			// 1. Add the values of the digits in the even-numbered positions: 2, 4, 6, etc.
