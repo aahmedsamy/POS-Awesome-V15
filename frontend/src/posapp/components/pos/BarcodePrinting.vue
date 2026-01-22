@@ -12,6 +12,14 @@
 						hide-details
 						class="mb-2"
 					></v-switch>
+					<v-switch
+						v-model="scaleBarcodeMode"
+						:label="__('Scale Barcode Mode')"
+						density="compact"
+						color="secondary"
+						hide-details
+						class="mb-2"
+					></v-switch>
 				</div>
 				<ItemsSelector
 					context="barcode"
@@ -195,11 +203,31 @@
 		<v-dialog v-model="addItemDialog" max-width="400">
 			<v-card v-if="pendingAddItem">
 				<v-card-title class="bg-primary text-white">
-					{{ __("Enter Quantity") }}
+					{{ scaleBarcodeMode ? __("Enter Weight") : __("Enter Quantity") }}
 				</v-card-title>
 				<v-card-text class="pt-4">
 					<div class="text-subtitle-1 mb-2">{{ pendingAddItem.item_name }}</div>
+
+					<div v-if="scaleBarcodeMode">
+						<v-text-field
+							v-model.number="addItemWeight"
+							:label="__('Weight')"
+							type="number"
+							min="0"
+							step="0.001"
+							variant="outlined"
+							autofocus
+							@keydown.enter="confirmAddItem"
+						></v-text-field>
+						<div class="text-caption text-right mt-1" v-if="pendingAddItem.rate">
+							{{ __("Rate") }}: {{ formatCurrency(pendingAddItem.rate) }} <br />
+							{{ __("Calculated Price") }}:
+							{{ formatCurrency(pendingAddItem.rate * (parseFloat(addItemWeight) || 0)) }}
+						</div>
+					</div>
+
 					<v-text-field
+						v-else
 						v-model.number="addItemQty"
 						:label="__('Quantity')"
 						type="number"
@@ -241,7 +269,11 @@ export default {
 			pos_profile: null,
 			addItemDialog: false,
 			addItemQty: 1,
+			addItemWeight: 0,
 			pendingAddItem: null,
+			scaleBarcodeMode: false,
+			scaleBarcodeSettings: {},
+			scaleBarcodeSettingsLoaded: false,
 		};
 	},
 	computed: {
@@ -271,6 +303,9 @@ export default {
 		async onAddItem(item) {
 			if (!item) return;
 
+			// Ensure settings are loaded
+			await this.ensureScaleBarcodeSettings();
+
 			// Resolve POS Profile
 			const profile =
 				this.pos_profile && this.pos_profile.name
@@ -279,12 +314,10 @@ export default {
 						? this.itemsStore.posProfile
 						: {};
 
-			// Check if item already exists
-			const existingItem = this.items.find((i) => i.item_code === item.item_code);
-			if (existingItem) {
-				existingItem.qty += 1;
-				return;
-			}
+			// Check if item already exists - BUT if scale mode, we might want separate entries if weight differs?
+			// Actually standard logic is to aggregate if same item/barcode.
+			// If scale mode, the barcode will be different per weight, so we treat it as new item effectively if barcode differs.
+			// But here we haven't generated the barcode yet.
 
 			// 1. Try to find barcode in the passed item object
 			let barcode = item.barcode;
@@ -332,41 +365,69 @@ export default {
 				}
 			}
 
-			if (!barcode) {
+			if (!barcode && !this.scaleBarcodeMode) {
 				this.eventBus.emit("show_message", {
 					title: __("Item '{0}' has no barcode", [item.item_name]),
 					color: "warning",
 				});
 			}
 
-			// Open Quantity Dialog before adding
+			// Open Quantity/Weight Dialog before adding
 			this.pendingAddItem = {
 				item_code: item.item_code,
 				item_name: item.item_name,
 				barcode: barcode || "",
 				qty: 1,
-				price: item.rate || item.standard_rate || 0,
+				rate: item.rate || item.standard_rate || 0, // Store base rate
+				price: item.rate || item.standard_rate || 0, // Total price
 			};
 			this.addItemQty = ""; // Start empty
+			this.addItemWeight = "";
 			this.addItemDialog = true;
 		},
 		confirmAddItem() {
 			if (!this.pendingAddItem) return;
 
 			const item = this.pendingAddItem;
-			// If empty or invalid, default to 1
-			const qty = parseInt(this.addItemQty) || 1;
 
-			// Check if item already exists
-			const existingItem = this.items.find((i) => i.item_code === item.item_code);
-			if (existingItem) {
-				existingItem.qty += qty;
-				// Optional: Move to top if desired, but user only asked for new items to be at top
-				// However, if we updated it, it might be nice to see it.
-				// Let's keep existing logic: update in place.
+			if (this.scaleBarcodeMode) {
+				// Scale Mode Logic
+				const weight = parseFloat(this.addItemWeight) || 0;
+				if (weight <= 0) {
+					// Maybe show error or just default to something?
+					// Let's assume validation happened or just proceed
+				}
+
+				// Calculate price
+				// Price = Rate * Weight
+				const price = item.rate * weight;
+				item.price = price;
+				item.qty = 1; // Scale items are usually 1 unit with embedded weight/price
+
+				// Generate Barcode
+				item.barcode = this.generateScaleBarcode(item.item_code, weight, price);
+
+				// For scale items, we likely want to add them as new rows always,
+				// or check if exactly same barcode exists.
+				const existingItem = this.items.find((i) => i.barcode === item.barcode);
+				if (existingItem) {
+					existingItem.qty += 1;
+				} else {
+					this.items.unshift(item);
+				}
 			} else {
-				item.qty = qty;
-				this.items.unshift(item);
+				// Normal Mode Logic
+				// If empty or invalid, default to 1
+				const qty = parseInt(this.addItemQty) || 1;
+
+				// Check if item already exists
+				const existingItem = this.items.find((i) => i.item_code === item.item_code);
+				if (existingItem) {
+					existingItem.qty += qty;
+				} else {
+					item.qty = qty;
+					this.items.unshift(item);
+				}
 			}
 
 			this.addItemDialog = false;
@@ -717,6 +778,183 @@ export default {
 				item._editingQty = false;
 				this.editingQtyValue = "";
 			}
+		},
+		normalizeScaleBarcodeSettings(rawSettings = {}) {
+			const settings = rawSettings && typeof rawSettings === "object" ? rawSettings : {};
+			return {
+				prefix: String(settings.prefix || "").trim(),
+				prefix_included_or_not: Number(settings.prefix_included_or_not) || 0,
+				no_of_prefix_characters: Number(settings.no_of_prefix_characters) || 0,
+				item_code_starting_digit: Number(settings.item_code_starting_digit) || 1,
+				item_code_total_digits: Number(settings.item_code_total_digits) || 5,
+				weight_starting_digit: Number(settings.weight_starting_digit) || 7,
+				weight_total_digits: Number(settings.weight_total_digits) || 5,
+				weight_decimals: Number(settings.weight_decimals) || 3,
+				price_included_in_barcode_or_not: Number(settings.price_included_in_barcode_or_not) || 0,
+				price_starting_digit: Number(settings.price_starting_digit) || 7,
+				price_total_digit: Number(settings.price_total_digit) || 5,
+				price_decimals: Number(settings.price_decimals) || 2,
+			};
+		},
+		updateScaleBarcodeSettings(settings) {
+			const normalized = this.normalizeScaleBarcodeSettings(settings);
+			this.scaleBarcodeSettings = { ...this.scaleBarcodeSettings, ...normalized };
+			this.scaleBarcodeSettingsLoaded = true;
+			return this.scaleBarcodeSettings;
+		},
+		async ensureScaleBarcodeSettings(force = false) {
+			if (!force && this.scaleBarcodeSettingsLoaded) return this.scaleBarcodeSettings;
+
+			try {
+				const res = await frappe.call({
+					method: "posawesome.posawesome.api.items.parse_scale_barcode",
+					args: { barcode: "" },
+				});
+
+				const message = res && res.message ? res.message : null;
+				if (message && (message.settings || message.prefix)) {
+					this.updateScaleBarcodeSettings(message.settings || message);
+				} else {
+					this.scaleBarcodeSettings = this.normalizeScaleBarcodeSettings();
+					this.scaleBarcodeSettingsLoaded = true;
+				}
+			} catch (error) {
+				console.error("Failed to load scale barcode settings", error);
+				this.scaleBarcodeSettings = this.normalizeScaleBarcodeSettings();
+				this.scaleBarcodeSettingsLoaded = true;
+			}
+			return this.scaleBarcodeSettings;
+		},
+		getScaleBarcodePrefix() {
+			const prefix = this.scaleBarcodeSettings?.prefix;
+			return typeof prefix === "string" ? prefix.trim() : "";
+		},
+		generateScaleBarcode(itemCode, weight, price) {
+			const settings = this.scaleBarcodeSettings;
+			const prefix = this.getScaleBarcodePrefix();
+			// EAN-13 length is usually 13, but let's assume standard structure or 13 digits
+			// We will construct based on settings which define positions 1-indexed.
+
+			// Determine total length. Usually 13 for EAN-13.
+			const totalLength = 13;
+			let barcodeArr = new Array(totalLength).fill("0");
+
+			// Fill Prefix
+			if (settings.prefix_included_or_not) {
+				const p = prefix.split("");
+				for (let i = 0; i < p.length; i++) {
+					barcodeArr[i] = p[i];
+				}
+			} else {
+				// If prefix is not "included" in the setting meaning it might be separate?
+				// But typically scale barcodes start with the prefix.
+				// Let's assume the settings dictate the structure.
+				// If prefix_included_or_not is false, it might mean we skip the prefix chars in parsing?
+				// But here we are generating. We should start with prefix if it exists.
+				const p = prefix.split("");
+				for (let i = 0; i < p.length; i++) {
+					barcodeArr[i] = p[i];
+				}
+			}
+
+			// Fill Item Code
+			// Ensure item code is numeric for this standard, or just place it.
+			// Scale barcodes usually use numeric item codes.
+			let code = String(itemCode).replace(/\D/g, "");
+			// Truncate or pad
+			const codeLen = settings.item_code_total_digits;
+			if (code.length > codeLen) code = code.substring(0, codeLen);
+			else code = code.padStart(codeLen, "0");
+
+			const codeStart = settings.item_code_starting_digit - 1; // 0-indexed
+			for (let i = 0; i < codeLen; i++) {
+				if (codeStart + i < totalLength) {
+					barcodeArr[codeStart + i] = code[i];
+				}
+			}
+
+			// Fill Weight or Price
+			if (settings.price_included_in_barcode_or_not) {
+				// Use Price
+				// Format price: remove decimal, pad
+				const priceDec = settings.price_decimals;
+				const priceVal = Math.round(price * Math.pow(10, priceDec));
+				let priceStr = String(priceVal);
+				const priceLen = settings.price_total_digit;
+
+				if (priceStr.length > priceLen) priceStr = priceStr.substring(0, priceLen);
+				else priceStr = priceStr.padStart(priceLen, "0");
+
+				const priceStart = settings.price_starting_digit - 1;
+				for (let i = 0; i < priceLen; i++) {
+					if (priceStart + i < totalLength) {
+						barcodeArr[priceStart + i] = priceStr[i];
+					}
+				}
+			} else {
+				// Use Weight
+				// Format weight
+				const weightDec = settings.weight_decimals;
+				const weightVal = Math.round(weight * Math.pow(10, weightDec));
+				let weightStr = String(weightVal);
+				const weightLen = settings.weight_total_digits;
+
+				if (weightStr.length > weightLen) weightStr = weightStr.substring(0, weightLen);
+				else weightStr = weightStr.padStart(weightLen, "0");
+
+				const weightStart = settings.weight_starting_digit - 1;
+				for (let i = 0; i < weightLen; i++) {
+					if (weightStart + i < totalLength) {
+						barcodeArr[weightStart + i] = weightStr[i];
+					}
+				}
+			}
+
+			// Calculate Check Digit (last digit) for EAN-13
+			// Even positions (0-indexed 1, 3, 5...) * 3 + Odd positions (0, 2, 4...)
+			// Actually EAN-13 check digit is calculated on first 12 digits.
+			// Position 13 is check digit.
+			let sum = 0;
+			for (let i = 0; i < 12; i++) {
+				const n = parseInt(barcodeArr[i] || "0");
+				if (i % 2 === 0) {
+					// Even index, but Odd position (1st, 3rd...)
+					sum += n;
+				} else {
+					// Odd index, but Even position (2nd, 4th...)
+					sum += n * 3;
+				}
+			}
+			// Wait, standard says:
+			// "The checksum is a Modulo 10 calculation:
+			// 1. Add the values of the digits in the even-numbered positions: 2, 4, 6, etc.
+			// 2. Multiply this result by 3.
+			// 3. Add the values of the digits in the odd-numbered positions: 1, 3, 5, etc.
+			// 4. Sum the results of steps 2 and 3.
+			// 5. The check character is the smallest number which, when added to the result in step 4, produces a multiple of 10."
+
+			// My indices are 0-based.
+			// Position 1 (index 0) is Odd.
+			// Position 2 (index 1) is Even.
+
+			sum = 0;
+			for (let i = 0; i < 12; i++) {
+				const n = parseInt(barcodeArr[i] || "0");
+				// positions are i+1
+				if ((i + 1) % 2 === 0) {
+					// Even position
+					sum += n * 3;
+				} else {
+					// Odd position
+					sum += n;
+				}
+			}
+
+			const remainder = sum % 10;
+			const checkDigit = remainder === 0 ? 0 : 10 - remainder;
+			barcodeArr[12] = String(checkDigit);
+
+			return barcodeArr.join("");
 		},
 	},
 	created() {
