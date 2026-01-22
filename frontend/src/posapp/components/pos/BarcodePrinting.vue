@@ -12,14 +12,6 @@
 						hide-details
 						class="mb-2"
 					></v-switch>
-					<v-switch
-						v-model="scaleBarcodeMode"
-						:label="__('Scale Barcode Mode')"
-						density="compact"
-						color="secondary"
-						hide-details
-						class="mb-2"
-					></v-switch>
 				</div>
 				<ItemsSelector
 					context="barcode"
@@ -217,8 +209,34 @@
 							step="0.001"
 							variant="outlined"
 							autofocus
+							class="mb-2"
 							@keydown.enter="confirmAddItem"
 						></v-text-field>
+						<v-text-field
+							v-model.number="addItemQty"
+							:label="__('Quantity')"
+							type="number"
+							min="1"
+							variant="outlined"
+							class="mb-2"
+							@keydown.enter="confirmAddItem"
+						></v-text-field>
+						<div class="text-caption text-right mt-1" v-if="pendingAddItem.rate && scaleBarcodeSettings.price_included_in_barcode_or_not">
+							{{ __("Rate") }}: {{ formatCurrency(pendingAddItem.rate) }} <br/>
+							{{ __("Calculated Price") }}: {{ formatCurrency(pendingAddItem.rate * (parseFloat(addItemWeight) || 0)) }}
+						</div>
+					</div>
+					
+					<v-text-field
+						v-else
+						v-model.number="addItemQty"
+						:label="__('Quantity')"
+						type="number"
+						min="1"
+						variant="outlined"
+						autofocus
+						@keydown.enter="confirmAddItem"
+					></v-text-field>
 						<div class="text-caption text-right mt-1" v-if="pendingAddItem.rate">
 							{{ __("Rate") }}: {{ formatCurrency(pendingAddItem.rate) }} <br />
 							{{ __("Calculated Price") }}:
@@ -318,7 +336,7 @@ export default {
 			// Actually standard logic is to aggregate if same item/barcode.
 			// If scale mode, the barcode will be different per weight, so we treat it as new item effectively if barcode differs.
 			// But here we haven't generated the barcode yet.
-
+			
 			// 1. Try to find barcode in the passed item object
 			let barcode = item.barcode;
 
@@ -365,6 +383,11 @@ export default {
 				}
 			}
 
+			// Determine if this is a scale item based on barcode prefix
+			const prefix = this.getScaleBarcodePrefix();
+			const isScaleItem = barcode && prefix && barcode.startsWith(prefix);
+			this.scaleBarcodeMode = isScaleItem;
+
 			if (!barcode && !this.scaleBarcodeMode) {
 				this.eventBus.emit("show_message", {
 					title: __("Item '{0}' has no barcode", [item.item_name]),
@@ -381,8 +404,8 @@ export default {
 				rate: item.rate || item.standard_rate || 0, // Store base rate
 				price: item.rate || item.standard_rate || 0, // Total price
 			};
-			this.addItemQty = ""; // Start empty
-			this.addItemWeight = "";
+			this.addItemQty = 1; // Default to 1
+			this.addItemWeight = ""; 
 			this.addItemDialog = true;
 		},
 		confirmAddItem() {
@@ -399,20 +422,30 @@ export default {
 				}
 
 				// Calculate price
-				// Price = Rate * Weight
-				const price = item.rate * weight;
+				// Only calculate price if the setting is enabled
+				let price = item.rate; // Default to rate if not calculated
+				if (this.scaleBarcodeSettings.price_included_in_barcode_or_not) {
+					price = item.rate * weight;
+				}
 				item.price = price;
-				item.qty = 1; // Scale items are usually 1 unit with embedded weight/price
+				
+				// Allow quantity input for scale items too (e.g. printing multiple labels of same weight)
+				const qty = parseInt(this.addItemQty) || 1;
+				item.qty = qty;
 
 				// Generate Barcode
 				item.barcode = this.generateScaleBarcode(item.item_code, weight, price);
-
-				// For scale items, we likely want to add them as new rows always,
+				
+				// For scale items, we likely want to add them as new rows always, 
 				// or check if exactly same barcode exists.
 				const existingItem = this.items.find((i) => i.barcode === item.barcode);
 				if (existingItem) {
-					existingItem.qty += 1;
+					existingItem.qty += qty;
 				} else {
+					this.items.unshift(item);
+				}
+
+			} else {
 					this.items.unshift(item);
 				}
 			} else {
