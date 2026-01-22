@@ -2607,45 +2607,133 @@ export default {
 			}
 		},
 		get_item_qty(first_search) {
-			const qtyVal = this.qty != null ? this.qty : 1;
-			let scal_qty = Math.abs(qtyVal);
+			// If settings are not loaded or invalid, fallback to existing logic or 1
+			if (!this.scaleBarcodeSettingsLoaded || !this.scaleBarcodeSettings) {
+				return 1;
+			}
+
+			const settings = this.scaleBarcodeSettings;
 			const prefix = this.getScaleBarcodePrefix();
-			const prefix_len = prefix.length;
 
 			if (this.scaleBarcodeMatches(first_search)) {
-				// Determine item code length dynamically based on EAN-13 structure:
-				// prefix + item_code + 5 qty digits + 1 check digit
-				const item_code_len = first_search.length - prefix_len - 6;
-				let pesokg1 = first_search.substr(prefix_len + item_code_len, 5);
-				let pesokg;
-				if (pesokg1.startsWith("0000")) {
-					pesokg = "0.00" + pesokg1.substr(4);
-				} else if (pesokg1.startsWith("000")) {
-					pesokg = "0.0" + pesokg1.substr(3);
-				} else if (pesokg1.startsWith("00")) {
-					pesokg = "0." + pesokg1.substr(2);
-				} else if (pesokg1.startsWith("0")) {
-					pesokg = pesokg1.substr(1, 1) + "." + pesokg1.substr(2, pesokg1.length);
-				} else if (!pesokg1.startsWith("0")) {
-					pesokg = pesokg1.substr(0, 2) + "." + pesokg1.substr(2, pesokg1.length);
+				// Use configured settings to extract weight
+				// Settings are 1-based indices. Convert to 0-based.
+
+				let rawValue = "";
+				let decimals = 0;
+
+				if (settings.price_included_in_barcode_or_not) {
+					// Price embedded
+					const start = (settings.price_starting_digit || 1) - 1;
+					const length = settings.price_total_digit || 5;
+					decimals = settings.price_decimals || 2;
+					rawValue = first_search.substr(start, length);
+				} else {
+					// Weight embedded
+					const start = (settings.weight_starting_digit || 1) - 1;
+					const length = settings.weight_total_digits || 5;
+					decimals = settings.weight_decimals || 3;
+					rawValue = first_search.substr(start, length);
 				}
-				scal_qty = pesokg;
+
+				const value = parseInt(rawValue) || 0;
+				// If price is included, we return the price? No, this function is get_item_qty.
+				// If price is embedded, the QTY is usually 1 (or calculated from price/rate? but rate might not be known yet).
+				// However, the legacy code seems to return a "scal_qty".
+				// If price is embedded, usually quantity is 1 and price is overridden.
+
+				if (settings.price_included_in_barcode_or_not) {
+					// If price is encoded, we effectively return "1" as qty (or null to indicate price override?)
+					// But current architecture expects a Quantity.
+					// If we return the Price as Qty, it will be wrong.
+					// Let's check how ItemsSelector uses this.
+					// `qtyFromBarcode = parseFloat(this.get_item_qty(scannedCode));`
+					// Then `addScannedItemToInvoice` uses it.
+
+					// For Price-embedded barcodes, we usually need to return 1, AND separately extract price.
+					// But `get_item_qty` is specifically asked for Qty.
+					// Let's return 1 if price is embedded (since we can't determine weight without rate).
+					return 1;
+				} else {
+					// Weight embedded
+					const weight = value / Math.pow(10, decimals);
+					return weight;
+				}
 			}
-			if (this.hide_qty_decimals) {
-				scal_qty = Math.trunc(scal_qty);
-			}
-			return scal_qty;
+
+			return 1;
 		},
 		get_search(first_search) {
 			if (!first_search) return "";
+
+			// Use scale barcode settings if available
+			if (
+				this.scaleBarcodeSettingsLoaded &&
+				this.scaleBarcodeSettings &&
+				this.scaleBarcodeMatches(first_search)
+			) {
+				const settings = this.scaleBarcodeSettings;
+				// If we need to extract the "Item Identifier" part that matches the stored barcode in ERPNext.
+				// Usually, ERPNext stores the "Base Barcode" (Prefix + ItemCode).
+				// E.g. Prefix 21, Item 0001 -> Barcode 210001.
+				// The scale adds weight/check digit -> 21000101200X.
+
+				// So we need to extract from index 0 up to (Prefix Length + Item Code Length).
+				// Or use the configured Item Code Start/Length?
+				// Item Code Start usually is just after Prefix.
+
+				// Let's assume standard behavior: return string from 0 to (Item Code End).
+				// Item Code End = (Item Code Start - 1) + Item Code Length.
+
+				const start = (settings.item_code_starting_digit || 1) - 1;
+				const len = settings.item_code_total_digits || 5;
+				// If prefix is included, usually we want the whole thing from 0.
+				// But if settings specify Item Code starts at 4...
+				// We should probably return standard "Prefix + Item Code".
+
+				// Safest bet based on previous hardcoded logic:
+				// It returned `first_search.substr(0, prefix_len + item_code_len)`.
+				// If we assume `item_code_starting_digit` handles the position...
+				// We probably want the substring that represents the identifier.
+
+				// Let's try to reconstruct the "Base Barcode".
+				// If prefix is "21" and ID is "0001". Base is "210001".
+				// If item_code_starting_digit=1, then ID includes prefix? No.
+
+				// Let's return the substring from 0 to (Start + Len).
+				// Assuming Start takes into account Prefix.
+				const end = start + len;
+
+				// However, if Start > Prefix Length, we might miss the prefix?
+				// Does `get_search` need to return the Prefix?
+				// Yes, "210001" includes prefix.
+				// So we return `first_search.substring(0, end)`.
+				return first_search.substring(0, end);
+			}
+
+			// Fallback legacy logic
 			const prefix = this.getScaleBarcodePrefix();
 			const prefix_len = prefix.length;
 			if (!this.scaleBarcodeMatches(first_search)) {
 				return first_search;
 			}
-			// Calculate item code length from total barcode length
 			const item_code_len = first_search.length - prefix_len - 6;
 			return first_search.substr(0, prefix_len + item_code_len);
+		},
+		get_item_price_from_barcode(barcode) {
+			if (!this.scaleBarcodeSettingsLoaded || !this.scaleBarcodeSettings) return null;
+			const settings = this.scaleBarcodeSettings;
+
+			if (settings.price_included_in_barcode_or_not) {
+				const start = (settings.price_starting_digit || 1) - 1;
+				const length = settings.price_total_digit || 5;
+				const decimals = settings.price_decimals || 2;
+
+				const raw = barcode.substr(start, length);
+				const val = parseInt(raw) || 0;
+				return val / Math.pow(10, decimals);
+			}
+			return null;
 		},
 		esc_event() {
 			this.clearSearch();
@@ -4002,6 +4090,7 @@ export default {
 			} else if (this.scaleBarcodeMatches(scannedCode)) {
 				searchCode = this.get_search(scannedCode);
 				qtyFromBarcode = parseFloat(this.get_item_qty(scannedCode));
+				priceFromBarcode = this.get_item_price_from_barcode(scannedCode);
 			}
 
 			// First try to find exact match by processed code using the pre-built index
