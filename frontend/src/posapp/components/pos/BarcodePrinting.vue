@@ -221,23 +221,12 @@
 							class="mb-2"
 							@keydown.enter="confirmAddItem"
 						></v-text-field>
-						<div class="text-caption text-right mt-1" v-if="pendingAddItem.rate && scaleBarcodeSettings.price_included_in_barcode_or_not">
-							{{ __("Rate") }}: {{ formatCurrency(pendingAddItem.rate) }} <br/>
-							{{ __("Calculated Price") }}: {{ formatCurrency(pendingAddItem.rate * (parseFloat(addItemWeight) || 0)) }}
-						</div>
-					</div>
-					
-					<v-text-field
-						v-else
-						v-model.number="addItemQty"
-						:label="__('Quantity')"
-						type="number"
-						min="1"
-						variant="outlined"
-						autofocus
-						@keydown.enter="confirmAddItem"
-					></v-text-field>
-						<div class="text-caption text-right mt-1" v-if="pendingAddItem.rate">
+						<div
+							class="text-caption text-right mt-1"
+							v-if="
+								pendingAddItem.rate && scaleBarcodeSettings.price_included_in_barcode_or_not
+							"
+						>
 							{{ __("Rate") }}: {{ formatCurrency(pendingAddItem.rate) }} <br />
 							{{ __("Calculated Price") }}:
 							{{ formatCurrency(pendingAddItem.rate * (parseFloat(addItemWeight) || 0)) }}
@@ -336,7 +325,7 @@ export default {
 			// Actually standard logic is to aggregate if same item/barcode.
 			// If scale mode, the barcode will be different per weight, so we treat it as new item effectively if barcode differs.
 			// But here we haven't generated the barcode yet.
-			
+
 			// 1. Try to find barcode in the passed item object
 			let barcode = item.barcode;
 
@@ -405,7 +394,7 @@ export default {
 				price: item.rate || item.standard_rate || 0, // Total price
 			};
 			this.addItemQty = 1; // Default to 1
-			this.addItemWeight = ""; 
+			this.addItemWeight = "";
 			this.addItemDialog = true;
 		},
 		confirmAddItem() {
@@ -428,15 +417,15 @@ export default {
 					price = item.rate * weight;
 				}
 				item.price = price;
-				
+
 				// Allow quantity input for scale items too (e.g. printing multiple labels of same weight)
 				const qty = parseInt(this.addItemQty) || 1;
 				item.qty = qty;
 
 				// Generate Barcode
 				item.barcode = this.generateScaleBarcode(item.item_code, weight, price);
-				
-				// For scale items, we likely want to add them as new rows always, 
+
+				// For scale items, we likely want to add them as new rows always,
 				// or check if exactly same barcode exists.
 				const existingItem = this.items.find((i) => i.barcode === item.barcode);
 				if (existingItem) {
@@ -601,7 +590,7 @@ export default {
             <script>
               window.onload = function() {
                 JsBarcode(".barcode").init();
-                
+
                 setTimeout(() => {
                     const element = document.getElementById('print-content');
                     const opt = {
@@ -658,12 +647,12 @@ export default {
             box-sizing: border-box;
             overflow: hidden;
           }
-          .item-name { 
-              font-size: 11px; 
-              font-weight: bold; 
-              overflow: hidden; 
-              white-space: nowrap; 
-              text-overflow: ellipsis; 
+          .item-name {
+              font-size: 11px;
+              font-weight: bold;
+              overflow: hidden;
+              white-space: nowrap;
+              text-overflow: ellipsis;
               max-width: 95%;
               margin-bottom: 2px;
           }
@@ -691,37 +680,37 @@ export default {
             box-sizing: border-box;
             padding: 1mm;
           }
-          .item-name { 
-              font-size: 11px; 
-              font-weight: bold; 
-              white-space: nowrap; 
-              overflow: hidden; 
-              text-overflow: ellipsis; 
-              max-width: 95%; 
-              line-height: 1.2; 
+          .item-name {
+              font-size: 11px;
+              font-weight: bold;
+              white-space: nowrap;
+              overflow: hidden;
+              text-overflow: ellipsis;
+              max-width: 95%;
+              line-height: 1.2;
               margin-bottom: 2px;
           }
-          .barcode-container { 
-              flex-grow: 1; 
-              display: flex; 
-              align-items: center; 
-              justify-content: center; 
-              width: 100%; 
-              overflow: hidden; 
+          .barcode-container {
+              flex-grow: 1;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              width: 100%;
+              overflow: hidden;
               padding: 2px 0;
           }
-          .price { 
-              font-size: 11px; 
-              font-weight: bold; 
-              line-height: 1.2; 
+          .price {
+              font-size: 11px;
+              font-weight: bold;
+              line-height: 1.2;
               margin-top: 2px;
           }
           .batch-serial { font-size: 9px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 95%; }
-          img.barcode { 
-              max-width: 95%; 
-              height: auto; 
+          img.barcode {
+              max-width: 95%;
+              height: auto;
               max-height: 100%;
-              object-fit: contain; 
+              object-fit: contain;
           }
         `;
 			}
