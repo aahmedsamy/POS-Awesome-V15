@@ -414,7 +414,7 @@ import { useStockUtils } from "../../composables/useStockUtils";
 import { getOpeningStorage } from "../../../offline/index.js";
 import { useItemsStore } from "../../stores/itemsStore";
 import { mapStores } from "pinia";
-import ItemsSelector from "./ItemsSelector.vue";
+import ItemsSelector from "../pos/ItemsSelector.vue";
 import PurchasePaymentDialog from "./PurchasePaymentDialog.vue";
 
 export default {
