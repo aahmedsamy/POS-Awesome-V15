@@ -956,37 +956,6 @@ export default {
 
 			return barcodeArr.join("");
 		},
-			// Wait, standard says:
-			// "The checksum is a Modulo 10 calculation:
-			// 1. Add the values of the digits in the even-numbered positions: 2, 4, 6, etc.
-			// 2. Multiply this result by 3.
-			// 3. Add the values of the digits in the odd-numbered positions: 1, 3, 5, etc.
-			// 4. Sum the results of steps 2 and 3.
-			// 5. The check character is the smallest number which, when added to the result in step 4, produces a multiple of 10."
-
-			// My indices are 0-based.
-			// Position 1 (index 0) is Odd.
-			// Position 2 (index 1) is Even.
-
-			sum = 0;
-			for (let i = 0; i < 12; i++) {
-				const n = parseInt(barcodeArr[i] || "0");
-				// positions are i+1
-				if ((i + 1) % 2 === 0) {
-					// Even position
-					sum += n * 3;
-				} else {
-					// Odd position
-					sum += n;
-				}
-			}
-
-			const remainder = sum % 10;
-			const checkDigit = remainder === 0 ? 0 : 10 - remainder;
-			barcodeArr[12] = String(checkDigit);
-
-			return barcodeArr.join("");
-		},
 	},
 	created() {
 		this.eventBus.on("add_item", this.onAddItem);
