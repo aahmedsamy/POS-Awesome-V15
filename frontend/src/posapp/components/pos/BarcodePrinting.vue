@@ -206,11 +206,13 @@
 							:label="__('Weight')"
 							type="number"
 							min="0"
-							step="0.001"
+							:step="weightStep"
 							variant="outlined"
 							autofocus
 							class="mb-2"
 							@keydown.enter="confirmAddItem"
+							:hint="weightInputHint"
+							persistent-hint
 						></v-text-field>
 						<v-text-field
 							v-model.number="addItemQty"
@@ -285,6 +287,21 @@ export default {
 	},
 	computed: {
 		...mapStores(useItemsStore),
+		weightStep() {
+			const decimals = this.scaleBarcodeSettings?.weight_decimals || 3;
+			return Math.pow(10, -decimals).toFixed(decimals);
+		},
+		weightInputHint() {
+			const decimals = this.scaleBarcodeSettings?.weight_decimals || 3;
+			const fmt = (n) => n.toFixed(decimals);
+			return __("Examples: 10g = {0}, 100g = {1}, 500g = {2}, 1kg = {3}, 10kg = {4}", [
+				fmt(0.01),
+				fmt(0.1),
+				fmt(0.5),
+				fmt(1.0),
+				fmt(10.0),
+			]);
+		},
 		headers() {
 			return [
 				{ title: __("Item Code"), key: "item_code", width: "20%" },
