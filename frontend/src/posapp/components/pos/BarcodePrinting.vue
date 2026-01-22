@@ -433,10 +433,6 @@ export default {
 				} else {
 					this.items.unshift(item);
 				}
-
-			} else {
-					this.items.unshift(item);
-				}
 			} else {
 				// Normal Mode Logic
 				// If empty or invalid, default to 1
