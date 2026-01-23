@@ -397,14 +397,13 @@ export default {
 			}
 
 			// Check if item already exists
+			// If we generated a weight barcode, we should treat it as a unique entry if possible,
+			// or group by barcode.
 			const existingItem = this.items.find(
 				(i) => i.item_code === item.item_code && i.barcode === item.barcode,
 			);
 			if (existingItem) {
 				existingItem.qty += qty;
-				// Optional: Move to top if desired, but user only asked for new items to be at top
-				// However, if we updated it, it might be nice to see it.
-				// Let's keep existing logic: update in place.
 			} else {
 				item.qty = qty;
 				this.items.unshift(item);
@@ -413,6 +412,7 @@ export default {
 			this.addItemDialog = false;
 			this.pendingAddItem = null;
 		},
+
 		removeItem(item) {
 			this.items = this.items.filter((i) => i.item_code !== item.item_code);
 		},
@@ -767,18 +767,25 @@ export default {
 		},
 		generateScaleBarcode(itemCode, weight) {
 			const settings = this.scaleBarcodeSettings;
-			if (!settings) return null;
+			if (!settings) {
+				console.warn("Scale Barcode Settings not loaded");
+				return null;
+			}
 
-			// Initialize a 12-digit buffer
+			// Initialize a 12-digit buffer (EAN-13 without checksum)
 			let digits = new Array(12).fill("0");
 
 			// Helper to insert string into digits
+			// start is 1-based index
 			const insert = (str, start, length) => {
 				const startIdx = start - 1; // 1-based to 0-based
 				if (startIdx < 0) return;
 
-				// Pad with leading zeros
-				const padded = String(str).padStart(length, "0").slice(-length);
+				// Ensure string and pad with leading zeros
+				// If str is longer than length, we take the LAST 'length' characters (standard behavior)
+				// or should we take the first? Usually padding implies we expect it to fit.
+				const s = String(str);
+				const padded = s.padStart(length, "0").slice(-length);
 
 				for (let i = 0; i < length; i++) {
 					if (startIdx + i < 12) {
@@ -787,48 +794,70 @@ export default {
 				}
 			};
 
-			// Prefix
-			if (settings.prefix_included_or_not) {
+			console.log("Generating Scale Barcode for:", itemCode, "Weight:", weight);
+			console.log("Settings:", settings);
+
+			// 1. Prefix
+			if (parseInt(settings.prefix_included_or_not)) {
 				const prefix = settings.prefix || "";
 				const len = parseInt(settings.no_of_prefix_characters) || 0;
-				insert(prefix, 1, len);
+				if (len > 0) {
+					insert(prefix, 1, len);
+				}
 			}
 
-			// Item Code
+			// 2. Item Code
 			const itemStart = parseInt(settings.item_code_starting_digit);
 			const itemLen = parseInt(settings.item_code_total_digits);
+
 			if (itemStart && itemLen) {
-				// Use numeric part of item code or just the code if numeric
-				const numericItemCode = itemCode.replace(/\D/g, "");
+				// Strip non-numeric characters
+				let numericItemCode = String(itemCode).replace(/\D/g, "");
+
+				// If Item Code became empty (e.g. non-numeric item code), log warning
+				if (!numericItemCode) {
+					console.warn("Item Code has no numeric characters:", itemCode);
+					// Fallback: Check if there's a barcode on the item that is numeric and fits?
+					// But backend expects Item Code. So we proceed with "00000" which is likely wrong but adhering to logic.
+					numericItemCode = "0";
+				}
+
 				insert(numericItemCode, itemStart, itemLen);
 			}
 
-			// Weight
+			// 3. Weight / Quantity
 			const weightStart = parseInt(settings.weight_starting_digit);
 			const weightLen = parseInt(settings.weight_total_digits);
 			const weightDecimals = parseInt(settings.weight_decimals) || 0;
 
 			if (weightStart && weightLen) {
 				const w = parseFloat(weight) || 0;
-				const intPart = Math.floor(w);
-				// Calculate decimal part
-				const decPart = Math.round((w - intPart) * Math.pow(10, weightDecimals));
+				// Example: Weight 1.25, decimals 3 -> 1250
+				// Example: Weight 0.555, decimals 3 -> 555
+				const weightVal = Math.round(w * Math.pow(10, weightDecimals));
+				insert(weightVal, weightStart, weightLen);
+			}
 
-				// Insert Integer Part
-				insert(intPart, weightStart, weightLen);
+			// 4. Price (Optional, if configured)
+			if (parseInt(settings.price_included_in_barcode_or_not)) {
+				const priceStart = parseInt(settings.price_starting_digit);
+				const priceLen = parseInt(settings.price_total_digit);
+				const priceDecimals = parseInt(settings.price_decimals) || 0;
 
-				// Insert Decimal Part
-				if (weightDecimals > 0) {
-					// Decimal part starts immediately after integer part
-					insert(decPart, weightStart + weightLen, weightDecimals);
+				if (priceStart && priceLen) {
+					// We need the price. But generateScaleBarcode currently only takes itemCode and weight.
+					// We might need to pass price too if we want to support price embedded.
+					// For now, ignoring as user asked for Weight Barcode.
 				}
 			}
 
 			const barcode12 = digits.join("");
-
 			const checksum = this.calculateEAN13Checksum(barcode12);
-			return barcode12 + checksum;
+			const fullBarcode = barcode12 + checksum;
+			console.log("Generated Barcode:", fullBarcode);
+			return fullBarcode;
 		},
+
 		calculateEAN13Checksum(digitsStr) {
 			if (digitsStr.length !== 12) return "0";
 
