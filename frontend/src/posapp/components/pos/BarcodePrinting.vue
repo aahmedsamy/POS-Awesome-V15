@@ -207,6 +207,20 @@
 						variant="outlined"
 						autofocus
 						@keydown.enter="confirmAddItem"
+						class="mb-2"
+					></v-text-field>
+
+					<v-text-field
+						v-if="scaleBarcodeSettings"
+						v-model.number="addItemWeight"
+						:label="__('Weight (for Scale Barcode)')"
+						type="number"
+						min="0"
+						step="0.001"
+						variant="outlined"
+						@keydown.enter="confirmAddItem"
+						hint="Enter weight to generate a scale barcode"
+						persistent-hint
 					></v-text-field>
 				</v-card-text>
 				<v-card-actions class="justify-end">
@@ -241,11 +255,14 @@ export default {
 			pos_profile: null,
 			addItemDialog: false,
 			addItemQty: 1,
+			addItemWeight: 0,
 			pendingAddItem: null,
+			scaleBarcodeSettings: null,
 		};
 	},
 	computed: {
 		...mapStores(useItemsStore),
+
 		headers() {
 			return [
 				{ title: __("Item Code"), key: "item_code", width: "20%" },
@@ -257,6 +274,17 @@ export default {
 		},
 	},
 	methods: {
+		async fetchScaleBarcodeSettings() {
+			try {
+				const res = await frappe.call("frappe.client.get", {
+					doctype: "Scale Barcode Settings",
+					name: "Scale Barcode Settings",
+				});
+				this.scaleBarcodeSettings = res.message;
+			} catch (e) {
+				console.warn("Failed to fetch Scale Barcode Settings", e);
+			}
+		},
 		parseLabelSize() {
 			if (this.pageFormat === "A4") {
 				return {
@@ -348,6 +376,7 @@ export default {
 				price: item.rate || item.standard_rate || 0,
 			};
 			this.addItemQty = ""; // Start empty
+			this.addItemWeight = "";
 			this.addItemDialog = true;
 		},
 		confirmAddItem() {
@@ -356,9 +385,21 @@ export default {
 			const item = this.pendingAddItem;
 			// If empty or invalid, default to 1
 			const qty = parseInt(this.addItemQty) || 1;
+			const weight = parseFloat(this.addItemWeight) || 0;
+
+			// Generate Scale Barcode if weight is provided
+			if (weight > 0 && this.scaleBarcodeSettings) {
+				const scaleBarcode = this.generateScaleBarcode(item.item_code, weight);
+				if (scaleBarcode) {
+					item.barcode = scaleBarcode;
+					item.weight = weight;
+				}
+			}
 
 			// Check if item already exists
-			const existingItem = this.items.find((i) => i.item_code === item.item_code);
+			const existingItem = this.items.find(
+				(i) => i.item_code === item.item_code && i.barcode === item.barcode,
+			);
 			if (existingItem) {
 				existingItem.qty += qty;
 				// Optional: Move to top if desired, but user only asked for new items to be at top
@@ -663,6 +704,11 @@ export default {
 						priceHtml = `<div class="price">Price: ${this.formatCurrency(item.price)}</div>`;
 					}
 
+					let weightHtml = "";
+					if (item.weight) {
+						weightHtml = `<div class="price">Weight: ${item.weight}</div>`;
+					}
+
 					html += `
             <div class="label">
               <div class="item-name">${item.item_name}</div>
@@ -678,6 +724,7 @@ export default {
                       jsbarcode-fontSize="12">
               </div>
               ${batchSerialHtml}
+              ${weightHtml}
               ${priceHtml}
             </div>
           `;
@@ -718,12 +765,93 @@ export default {
 				this.editingQtyValue = "";
 			}
 		},
+		generateScaleBarcode(itemCode, weight) {
+			const settings = this.scaleBarcodeSettings;
+			if (!settings) return null;
+
+			// Initialize a 12-digit buffer
+			let digits = new Array(12).fill("0");
+
+			// Helper to insert string into digits
+			const insert = (str, start, length) => {
+				const startIdx = start - 1; // 1-based to 0-based
+				if (startIdx < 0) return;
+
+				// Pad with leading zeros
+				const padded = String(str).padStart(length, "0").slice(-length);
+
+				for (let i = 0; i < length; i++) {
+					if (startIdx + i < 12) {
+						digits[startIdx + i] = padded[i];
+					}
+				}
+			};
+
+			// Prefix
+			if (settings.prefix_included_or_not) {
+				const prefix = settings.prefix || "";
+				const len = parseInt(settings.no_of_prefix_characters) || 0;
+				insert(prefix, 1, len);
+			}
+
+			// Item Code
+			const itemStart = parseInt(settings.item_code_starting_digit);
+			const itemLen = parseInt(settings.item_code_total_digits);
+			if (itemStart && itemLen) {
+				// Use numeric part of item code or just the code if numeric
+				const numericItemCode = itemCode.replace(/\D/g, "");
+				insert(numericItemCode, itemStart, itemLen);
+			}
+
+			// Weight
+			const weightStart = parseInt(settings.weight_starting_digit);
+			const weightLen = parseInt(settings.weight_total_digits);
+			const weightDecimals = parseInt(settings.weight_decimals) || 0;
+
+			if (weightStart && weightLen) {
+				const w = parseFloat(weight) || 0;
+				const intPart = Math.floor(w);
+				// Calculate decimal part
+				const decPart = Math.round((w - intPart) * Math.pow(10, weightDecimals));
+
+				// Insert Integer Part
+				insert(intPart, weightStart, weightLen);
+
+				// Insert Decimal Part
+				if (weightDecimals > 0) {
+					// Decimal part starts immediately after integer part
+					insert(decPart, weightStart + weightLen, weightDecimals);
+				}
+			}
+
+			const barcode12 = digits.join("");
+
+			const checksum = this.calculateEAN13Checksum(barcode12);
+			return barcode12 + checksum;
+		},
+		calculateEAN13Checksum(digitsStr) {
+			if (digitsStr.length !== 12) return "0";
+
+			let sum = 0;
+			for (let i = 0; i < 12; i++) {
+				const digit = parseInt(digitsStr[i]);
+				if (i % 2 === 0) {
+					sum += digit; // Odd positions (1, 3, 5...) are index 0, 2, 4... weight 1
+				} else {
+					sum += digit * 3; // Even positions (2, 4, 6...) are index 1, 3, 5... weight 3
+				}
+			}
+
+			const remainder = sum % 10;
+			return remainder === 0 ? "0" : String(10 - remainder);
+		},
 	},
 	created() {
 		this.eventBus.on("add_item", this.onAddItem);
 		this.eventBus.on("register_pos_profile", (data) => {
 			this.pos_profile = data.pos_profile || {};
 		});
+		this.fetchScaleBarcodeSettings();
 	},
 	beforeUnmount() {
 		this.eventBus.off("add_item", this.onAddItem);
