@@ -389,7 +389,7 @@ export default {
 
 			// Generate Scale Barcode if weight is provided
 			if (weight > 0 && this.scaleBarcodeSettings) {
-				const scaleBarcode = this.generateScaleBarcode(item.item_code, weight);
+				const scaleBarcode = this.generateScaleBarcode(item, weight);
 				if (scaleBarcode) {
 					item.barcode = scaleBarcode;
 					item.weight = weight;
@@ -765,7 +765,7 @@ export default {
 				this.editingQtyValue = "";
 			}
 		},
-		generateScaleBarcode(itemCode, weight) {
+		generateScaleBarcode(item, weight) {
 			const settings = this.scaleBarcodeSettings;
 			if (!settings) {
 				console.warn("Scale Barcode Settings not loaded");
@@ -783,7 +783,6 @@ export default {
 
 				// Ensure string and pad with leading zeros
 				// If str is longer than length, we take the LAST 'length' characters (standard behavior)
-				// or should we take the first? Usually padding implies we expect it to fit.
 				const s = String(str);
 				const padded = s.padStart(length, "0").slice(-length);
 
@@ -794,8 +793,7 @@ export default {
 				}
 			};
 
-			console.log("Generating Scale Barcode for:", itemCode, "Weight:", weight);
-			console.log("Settings:", settings);
+			console.log("Generating Scale Barcode for:", item.item_name, "Weight:", weight);
 
 			// 1. Prefix
 			if (parseInt(settings.prefix_included_or_not)) {
@@ -811,18 +809,21 @@ export default {
 			const itemLen = parseInt(settings.item_code_total_digits);
 
 			if (itemStart && itemLen) {
-				// Strip non-numeric characters
-				let numericItemCode = String(itemCode).replace(/\D/g, "");
-
-				// If Item Code became empty (e.g. non-numeric item code), log warning
-				if (!numericItemCode) {
-					console.warn("Item Code has no numeric characters:", itemCode);
-					// Fallback: Check if there's a barcode on the item that is numeric and fits?
-					// But backend expects Item Code. So we proceed with "00000" which is likely wrong but adhering to logic.
-					numericItemCode = "0";
+				let codeToUse = item.item_code;
+				// If item_code contains non-digits, try using the item's barcode
+				if (/[^0-9]/.test(codeToUse)) {
+					console.warn("Item Code contains non-numeric characters:", codeToUse);
+					if (item.barcode && /^[0-9]+$/.test(item.barcode)) {
+						console.log("Using Item Barcode instead:", item.barcode);
+						codeToUse = item.barcode;
+					} else {
+						// Last resort: try numeric characters only? or just 0
+						codeToUse = codeToUse.replace(/\D/g, "");
+						if (!codeToUse) codeToUse = "0";
+					}
 				}
 
-				insert(numericItemCode, itemStart, itemLen);
+				insert(codeToUse, itemStart, itemLen);
 			}
 
 			// 3. Weight / Quantity
@@ -833,22 +834,8 @@ export default {
 			if (weightStart && weightLen) {
 				const w = parseFloat(weight) || 0;
 				// Example: Weight 1.25, decimals 3 -> 1250
-				// Example: Weight 0.555, decimals 3 -> 555
 				const weightVal = Math.round(w * Math.pow(10, weightDecimals));
 				insert(weightVal, weightStart, weightLen);
-			}
-
-			// 4. Price (Optional, if configured)
-			if (parseInt(settings.price_included_in_barcode_or_not)) {
-				const priceStart = parseInt(settings.price_starting_digit);
-				const priceLen = parseInt(settings.price_total_digit);
-				const priceDecimals = parseInt(settings.price_decimals) || 0;
-
-				if (priceStart && priceLen) {
-					// We need the price. But generateScaleBarcode currently only takes itemCode and weight.
-					// We might need to pass price too if we want to support price embedded.
-					// For now, ignoring as user asked for Weight Barcode.
-				}
 			}
 
 			const barcode12 = digits.join("");
