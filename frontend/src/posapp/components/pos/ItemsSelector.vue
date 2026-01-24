@@ -194,6 +194,7 @@
 /* eslint-disable no-unused-vars */
 /* global frappe, __, setLocalStockCache, flt, onScan, get_currency_symbol, current_items, wordCount */
 import format from "../../format";
+import { ref } from "vue";
 import _ from "lodash";
 import CameraScanner from "./CameraScanner.vue";
 import NewItemDialog from "./items/NewItemDialog.vue";
@@ -263,7 +264,11 @@ export default {
 		const customersStore = useCustomersStore();
 		const { selectedCustomer } = storeToRefs(customersStore);
 
+		// Create a local ref for search_input that syncs with the store
+		const localSearchInput = ref("");
+
 		const clearSearch = () => {
+			localSearchInput.value = "";
 			itemsIntegration.search.value = "";
 			if (itemsIntegration.clearLimitSearchResults) {
 				itemsIntegration.clearLimitSearchResults();
@@ -278,8 +283,8 @@ export default {
 			...itemsIntegration,
 			selectedCustomer,
 			clearSearch,
-			// map search computed to search_input for template compatibility (if needed)
-			search_input: itemsIntegration.search,
+			// Use local ref for search_input instead of computed from store
+			search_input: localSearchInput,
 		};
 	},
 	components: {

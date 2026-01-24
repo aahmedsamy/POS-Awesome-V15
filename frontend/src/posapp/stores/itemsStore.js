@@ -748,7 +748,12 @@ export const useItemsStore = defineStore("items", () => {
 			totalItemCount.value = items.value.length;
 		}
 
-		if (!searchTerm.value) {
+		// Always update filteredItems - apply search term if present, otherwise just group filter
+		if (searchTerm.value) {
+			// When there's a search term, the items were already filtered by the server
+			// so we just need to apply group filter if any
+			filteredItems.value = filterItemsByGroup(items.value, normalizedGroup);
+		} else {
 			filteredItems.value = filterItemsByGroup(items.value, normalizedGroup);
 		}
 	};
