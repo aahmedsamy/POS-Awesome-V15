@@ -595,8 +595,7 @@ export default {
 				}
 			});
 		},
-		showOnlyBarcodeItems() {
-		},
+		showOnlyBarcodeItems() {},
 	},
 
 	methods: {
@@ -1856,14 +1855,14 @@ export default {
 			if (this.highlightedIndex >= 0) {
 				if (event && typeof event.preventDefault === "function") {
 					event.preventDefault();
+				}
+				const item = this.displayedItems[this.highlightedIndex];
+				if (item) {
+					this.add_item(item);
+				}
 			}
-
-			// Clear the input only when triggered via scanner
-			if (fromScanner) {
-				vm.clearSearch();
-				vm.focusItemSearch();
-				vm.search_from_scanner = false;
-			}
+		},
+		get_item_qty(first_search) {
 			const qtyVal = this.qty != null ? this.qty : 1;
 			let scal_qty = Math.abs(qtyVal);
 			const prefix = this.getScaleBarcodePrefix();
@@ -2551,6 +2550,8 @@ export default {
 					this.clearSearch();
 					this.focusItemSearch();
 				}
+			});
+		},
 		restoreSearch() {
 			if (this.search_input === "") {
 				this.search_input = this.search_backup;
@@ -2725,8 +2726,6 @@ export default {
 					);
 				}
 				return;
-			}
-
 			}
 
 			// Clear the search field immediately to allow for rapid scanning

@@ -245,7 +245,7 @@
 <script>
 /* global frappe, get_currency_symbol */
 import { RecycleScroller } from "vue-virtual-scroller";
-import Skeleton from "../ui/Skeleton.vue";
+import Skeleton from "../../ui/Skeleton.vue";
 import placeholderImage from "../placeholder-image.png";
 import format from "../../../format";
 
