@@ -310,6 +310,13 @@ export const useItemsStore = defineStore("items", () => {
 				}
 			}
 
+			// Don't fetch from server if offline
+			if (isOffline()) {
+				console.log("[itemsStore] System is offline, skipping server fetch");
+				isLoading.value = false;
+				return [];
+			}
+
 			// Create abort controller
 			const abortController = new AbortController();
 			abortControllers.value.set(cacheKey, abortController);
@@ -428,6 +435,11 @@ export const useItemsStore = defineStore("items", () => {
 		}
 
 		if (limitSearchEnabled.value) {
+			if (isOffline()) {
+				// In limit search + offline, we can only use what's in IndexedDB
+				// But limit search usually means no IndexedDB. We try local search as fallback.
+				return performLocalSearch(term, items.value);
+			}
 			try {
 				await loadItems({
 					searchValue: term,
@@ -496,8 +508,8 @@ export const useItemsStore = defineStore("items", () => {
 				const sourceItems = canRefineSearch ? filteredItems.value : items.value;
 				searchResults = performLocalSearch(term, sourceItems);
 
-				// If no results and term is specific enough, search server
-				if (searchResults.length === 0 && term.length >= 3) {
+				// If no results and term is specific enough, search server (only if online)
+				if (searchResults.length === 0 && term.length >= 3 && !isOffline()) {
 					await loadItems({
 						searchValue: term,
 						groupFilter: itemGroup.value,

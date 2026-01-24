@@ -625,21 +625,21 @@ export default {
 				// Trigger search based on configuration
 				if (this.usesLimitSearch) {
 					const shouldForceServer =
-						!this.pos_profile?.posa_local_storage || !this.storageAvailable || !isOffline();
+						!isOffline() && (!this.pos_profile?.posa_local_storage || !this.storageAvailable);
 					await this.get_items(shouldForceServer);
 				} else if (this.pos_profile && this.pos_profile.posa_local_storage) {
 					if (this.storageAvailable) {
 						await this.loadVisibleItems(true);
 						this.enter_event();
 					} else {
-						this.get_items(true);
+						await this.get_items(!isOffline());
 					}
 				} else {
-					// When local storage is disabled, fetch items from server
-					await this.get_items(true);
+					// When local storage is disabled, fetch items from server (only if online)
+					await this.get_items(!isOffline());
 					this.enter_event();
 
-					if (this.displayedItems && this.displayedItems.length > 0) {
+					if (this.displayedItems && this.displayedItems.length > 0 && !isOffline()) {
 						setTimeout(() => {
 							this.update_items_details(this.displayedItems);
 						}, 300);
@@ -4368,18 +4368,16 @@ export default {
 		// Manually trigger a full item reload when requested
 		this.eventBus.on("force_reload_items", async () => {
 			await this.ensureStorageHealth();
-			if (!isOffline()) {
+			const offline = isOffline();
+
+			if (!offline) {
 				if (this.pos_profile && (!this.pos_profile.posa_local_storage || !this.storageAvailable)) {
 					await forceClearAllCache();
 				}
 				await this.get_items(true);
 			} else {
-				if (this.pos_profile && (!this.pos_profile.posa_local_storage || !this.storageAvailable)) {
-					await forceClearAllCache();
-					await this.get_items(true);
-				} else {
-					await this.get_items();
-				}
+				// When offline, we can't force server, just load from cache
+				await this.get_items(false);
 			}
 		});
 
