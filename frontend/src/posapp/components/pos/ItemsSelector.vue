@@ -1864,8 +1864,6 @@ export default {
 				vm.focusItemSearch();
 				vm.search_from_scanner = false;
 			}
-		},
-		get_item_qty(first_search) {
 			const qtyVal = this.qty != null ? this.qty : 1;
 			let scal_qty = Math.abs(qtyVal);
 			const prefix = this.getScaleBarcodePrefix();
