@@ -47,225 +47,41 @@
 
 			<!-- Add dynamic-padding wrapper like Invoice component -->
 			<div class="dynamic-padding">
-				<div class="sticky-header">
-					<v-row class="items">
-						<v-col class="pb-0">
-							<v-text-field
-								density="compact"
-								clearable
-								autofocus
-								variant="solo"
-								color="primary"
-								:label="frappe._('Search Items')"
-								hint="Search by item code, serial number, batch no or barcode"
-								hide-details
-								v-model="search_input"
-								@keydown.esc="esc_event"
-								@keydown.enter="onEnter"
-								@keydown="handleSearchKeydown"
-								@click:clear="clearSearch"
-								@input="handleSearchInput"
-								@paste="handleSearchPaste"
-								prepend-inner-icon="mdi-magnify"
-								@focus="handleItemSearchFocus"
-								ref="debounce_search"
-							>
-								<template v-slot:append-inner>
-									<v-btn
-										v-if="pos_profile.posa_enable_camera_scanning"
-										icon="mdi-camera"
-										size="small"
-										color="primary"
-										variant="text"
-										:disabled="scannerLocked"
-										@click="startCameraScanning"
-										:title="
-											scannerLocked
-												? __('Acknowledge the error to resume scanning')
-												: __('Scan with Camera')
-										"
-										:aria-label="
-											scannerLocked
-												? __('Acknowledge the error to resume scanning')
-												: __('Scan with Camera')
-										"
-									>
-									</v-btn>
-								</template>
-							</v-text-field>
-						</v-col>
-						<v-col cols="3" class="pb-0" v-if="pos_profile.posa_input_qty">
-							<v-text-field
-								density="compact"
-								variant="solo"
-								color="primary"
-								:label="frappe._('QTY')"
-								hide-details
-								v-model="debounce_qty"
-								type="text"
-								@keydown.enter="enter_event"
-								@keydown.esc="esc_event"
-								@focus="clearQty"
-							></v-text-field>
-						</v-col>
-						<v-col cols="2" class="pb-0" v-if="pos_profile.posa_new_line">
-							<v-checkbox
-								v-model="new_line"
-								color="accent"
-								value="true"
-								label="NLine"
-								density="default"
-								hide-details
-							></v-checkbox>
-						</v-col>
-						<v-col cols="12" class="dynamic-margin-xs">
-							<div class="settings-container">
-								<v-btn
-									v-if="context === 'purchase'"
-									density="compact"
-									variant="text"
-									color="primary"
-									prepend-icon="mdi-plus"
-									@click="openNewItemDialog"
-									class="settings-btn"
-								>
-									{{ __("New Item") }}
-								</v-btn>
-								<v-btn
-									density="compact"
-									variant="text"
-									color="primary"
-									prepend-icon="mdi-cog-outline"
-									@click="toggleItemSettings"
-									class="settings-btn"
-								>
-									{{ __("Settings") }}
-								</v-btn>
-								<v-spacer></v-spacer>
-								<span
-									v-if="enable_background_sync"
-									class="text-caption text-medium-emphasis last-sync-label"
-								>
-									{{ __("Last sync:") }} {{ formatBackgroundSyncTime() }}
-								</span>
-								<v-spacer></v-spacer>
-								<v-btn
-									density="compact"
-									variant="text"
-									color="primary"
-									prepend-icon="mdi-refresh"
-									@click="forceReloadItems"
-									class="settings-btn"
-								>
-									{{ __("Reload Items") }}
-								</v-btn>
-
-								<v-dialog v-model="show_item_settings" max-width="400px">
-									<v-card>
-										<v-card-title class="text-h6 pa-4 d-flex align-center">
-											<span>{{ __("Item Selector Settings") }}</span>
-											<v-spacer></v-spacer>
-											<v-btn
-												icon="mdi-close"
-												variant="text"
-												density="compact"
-												@click="show_item_settings = false"
-												:aria-label="__('Close Settings')"
-											>
-											</v-btn>
-										</v-card-title>
-										<v-divider></v-divider>
-										<v-card-text class="pa-4">
-											<v-switch
-												v-model="temp_hide_qty_decimals"
-												:label="__('Hide quantity decimals')"
-												hide-details
-												density="compact"
-												color="primary"
-												class="mb-2"
-											></v-switch>
-											<v-switch
-												v-model="temp_hide_zero_rate_items"
-												:label="__('Hide zero rated items')"
-												hide-details
-												density="compact"
-												color="primary"
-											></v-switch>
-											<v-switch
-												v-model="temp_show_last_invoice_rate"
-												:label="__('Show last invoice rate')"
-												hide-details
-												density="compact"
-												color="primary"
-												class="mb-2"
-											></v-switch>
-											<v-switch
-												v-model="temp_enable_background_sync"
-												:label="__('Enable background sync')"
-												hide-details
-												density="compact"
-												color="primary"
-												class="mb-2"
-											></v-switch>
-											<v-text-field
-												v-model="temp_background_sync_interval"
-												:label="__('Background sync interval (seconds)')"
-												type="number"
-												density="compact"
-												variant="outlined"
-												color="primary"
-												hide-details
-												class="mb-2 pos-themed-input"
-												:min="10"
-												:disabled="!temp_enable_background_sync"
-											></v-text-field>
-											<v-switch
-												v-model="temp_enable_custom_items_per_page"
-												:label="__('Custom items per page')"
-												hide-details
-												density="compact"
-												color="primary"
-												class="mb-2"
-											>
-											</v-switch>
-											<v-checkbox
-												v-model="temp_force_server_items"
-												:label="
-													__('Always fetch items from server (ignore local cache)')
-												"
-												hide-details
-												density="compact"
-												color="primary"
-												class="mb-2"
-											></v-checkbox>
-											<v-text-field
-												v-if="temp_enable_custom_items_per_page"
-												v-model="temp_items_per_page"
-												type="number"
-												density="compact"
-												variant="outlined"
-												color="primary"
-												hide-details
-												:label="__('Items per page')"
-												class="mb-2 pos-themed-input"
-											>
-											</v-text-field>
-										</v-card-text>
-										<v-card-actions class="pa-4 pt-0">
-											<v-btn color="error" variant="text" @click="cancelItemSettings"
-												>{{ __("Cancel") }}
-											</v-btn>
-											<v-spacer></v-spacer>
-											<v-btn color="primary" variant="tonal" @click="applyItemSettings"
-												>{{ __("Apply") }}
-											</v-btn>
-										</v-card-actions>
-									</v-card>
-								</v-dialog>
-							</div>
-						</v-col>
-					</v-row>
-				</div>
+				<ItemsSearchHeader
+					ref="debounce_search"
+					v-model:searchInput="search_input"
+					v-model:debounceQty="debounce_qty"
+					v-model:newLine="new_line"
+					v-model:showItemSettings="show_item_settings"
+					v-model:tempHideQtyDecimals="temp_hide_qty_decimals"
+					v-model:tempHideZeroRateItems="temp_hide_zero_rate_items"
+					v-model:tempShowLastInvoiceRate="temp_show_last_invoice_rate"
+					v-model:tempEnableBackgroundSync="temp_enable_background_sync"
+					v-model:tempBackgroundSyncInterval="temp_background_sync_interval"
+					v-model:tempEnableCustomItemsPerPage="temp_enable_custom_items_per_page"
+					v-model:tempItemsPerPage="temp_items_per_page"
+					v-model:tempForceServerItems="temp_force_server_items"
+					:posProfile="pos_profile"
+					:context="context"
+					:scannerLocked="scannerLocked"
+					:enableBackgroundSync="enable_background_sync"
+					:lastSyncLabel="formatBackgroundSyncTime()"
+					:onEnter="onEnter"
+					:onQtyEnter="enter_event"
+					:onEsc="esc_event"
+					:onSearchKeydown="handleSearchKeydown"
+					:onClearSearch="clearSearch"
+					:onSearchInput="handleSearchInput"
+					:onSearchPaste="handleSearchPaste"
+					:onSearchFocus="handleItemSearchFocus"
+					:onStartCameraScanning="startCameraScanning"
+					:onOpenNewItemDialog="openNewItemDialog"
+					:onToggleItemSettings="toggleItemSettings"
+					:onCancelItemSettings="cancelItemSettings"
+					:onApplyItemSettings="applyItemSettings"
+					:onForceReloadItems="forceReloadItems"
+					:onClearQty="clearQty"
+				/>
 				<v-row class="items">
 					<v-col cols="12" class="pt-0 mt-0">
 						<div v-if="items_view == 'card'" class="items-card-container">
@@ -725,6 +541,7 @@
 import format from "../../format";
 import _ from "lodash";
 import CameraScanner from "./CameraScanner.vue";
+import ItemsSearchHeader from "./items/ItemsSearchHeader.vue";
 import { ensurePosProfile } from "../../../utils/pos_profile.js";
 import "vue-virtual-scroller/dist/vue-virtual-scroller.css";
 import { RecycleScroller } from "vue-virtual-scroller";
@@ -799,6 +616,7 @@ export default {
 	},
 	components: {
 		CameraScanner,
+		ItemsSearchHeader,
 		Skeleton,
 		RecycleScroller,
 	},

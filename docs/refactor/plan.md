@@ -15,3 +15,4 @@
 
 - 2026-01-24: Initialized refactor tracking document.
 - 2026-01-24: Extracted invoice items table section into `InvoiceItemsTableSection`.
+- 2026-01-24: Extracted items selector header/settings into `ItemsSearchHeader`.
