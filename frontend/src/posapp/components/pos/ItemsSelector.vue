@@ -1521,7 +1521,6 @@ export default {
 			this.pendingItemSearch = null;
 			if (pendingSearch) {
 				this.debouncedSearch(pendingSearch);
-				}
 				return;
 			}
 
