@@ -387,67 +387,17 @@
 				</v-row>
 			</div>
 		</v-card>
-		<v-card class="cards mb-0 mt-3 dynamic-padding resizable" style="resize: vertical; overflow: auto">
-			<v-row no-gutters align="center" justify="center" class="dynamic-spacing-sm">
-				<v-col cols="12" class="mb-2">
-					<v-select
-						:items="items_group"
-						:label="frappe._('Items Group')"
-						density="compact"
-						variant="solo"
-						hide-details
-						v-model="item_group"
-					></v-select>
-				</v-col>
-				<v-col cols="12" class="mb-2" v-if="pos_profile.posa_enable_price_list_dropdown !== false">
-					<v-text-field
-						density="compact"
-						variant="solo"
-						color="primary"
-						:label="frappe._('Price List')"
-						hide-details
-						:model-value="active_price_list"
-						readonly
-					></v-text-field>
-				</v-col>
-				<v-col cols="3" class="dynamic-margin-xs">
-					<v-btn-toggle
-						v-model="items_view"
-						color="primary"
-						group
-						density="compact"
-						rounded
-						class="view-toggle-btn"
-					>
-						<v-btn size="small" value="list">{{ __("List") }}</v-btn>
-						<v-btn size="small" value="card">{{ __("Card") }}</v-btn>
-					</v-btn-toggle>
-				</v-col>
-				<v-col cols="5" class="dynamic-margin-xs">
-					<v-btn
-						size="small"
-						block
-						color="warning"
-						variant="text"
-						@click="show_offers"
-						class="action-btn-consistent"
-					>
-						{{ offersCount }} {{ __("Offers") }}
-					</v-btn>
-				</v-col>
-				<v-col cols="4" class="dynamic-margin-xs">
-					<v-btn
-						size="small"
-						block
-						color="primary"
-						variant="text"
-						@click="show_coupons"
-						class="action-btn-consistent"
-						>{{ couponsCount }} {{ __("Coupons") }}</v-btn
-					>
-				</v-col>
-			</v-row>
-		</v-card>
+		<ItemsFooterActions
+			v-model:itemGroup="item_group"
+			v-model:itemsView="items_view"
+			:itemsGroup="items_group"
+			:activePriceList="active_price_list"
+			:offersCount="offersCount"
+			:couponsCount="couponsCount"
+			:posProfile="pos_profile"
+			@show-offers="show_offers"
+			@show-coupons="show_coupons"
+		/>
 
 		<!-- New Item Dialog -->
 		<v-dialog v-model="newItemDialog" max-width="500px">
@@ -542,6 +492,7 @@ import format from "../../format";
 import _ from "lodash";
 import CameraScanner from "./CameraScanner.vue";
 import ItemsSearchHeader from "./items/ItemsSearchHeader.vue";
+import ItemsFooterActions from "./items/ItemsFooterActions.vue";
 import { ensurePosProfile } from "../../../utils/pos_profile.js";
 import "vue-virtual-scroller/dist/vue-virtual-scroller.css";
 import { RecycleScroller } from "vue-virtual-scroller";
@@ -617,6 +568,7 @@ export default {
 	components: {
 		CameraScanner,
 		ItemsSearchHeader,
+		ItemsFooterActions,
 		Skeleton,
 		RecycleScroller,
 	},
