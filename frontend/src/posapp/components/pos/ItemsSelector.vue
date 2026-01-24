@@ -614,35 +614,35 @@ export default {
 					return;
 				}
 
-				// For short queries, clear the filter
-				if (!trimmedQuery || trimmedQuery.length < 2) {
-					this.search_from_scanner = false;
-					return;
-				}
-
 				const fromScanner = this.search_from_scanner;
 
-				// Trigger search based on configuration
-				if (this.usesLimitSearch) {
-					const shouldForceServer =
-						!isOffline() && (!this.pos_profile?.posa_local_storage || !this.storageAvailable);
-					await this.get_items(shouldForceServer);
-				} else if (this.pos_profile && this.pos_profile.posa_local_storage) {
-					if (this.storageAvailable) {
-						await this.loadVisibleItems(true);
-						this.enter_event();
-					} else {
-						await this.get_items(!isOffline());
-					}
-				} else {
-					// When local storage is disabled, fetch items from server (only if online)
-					await this.get_items(!isOffline());
-					this.enter_event();
+				// Always trigger search in store first - store handles offline/local/indexed logic
+				await this.searchItems(trimmedQuery);
 
-					if (this.displayedItems && this.displayedItems.length > 0 && !isOffline()) {
-						setTimeout(() => {
-							this.update_items_details(this.displayedItems);
-						}, 300);
+				// For online mode with specific settings, we might still need to trigger server calls
+				// but only if we are actually online
+				if (!isOffline()) {
+					if (this.usesLimitSearch) {
+						const shouldForceServer =
+							!this.pos_profile?.posa_local_storage || !this.storageAvailable;
+						await this.get_items(shouldForceServer);
+					} else if (this.pos_profile && this.pos_profile.posa_local_storage) {
+						if (this.storageAvailable) {
+							await this.loadVisibleItems(true);
+							this.enter_event();
+						} else {
+							await this.get_items(true);
+						}
+					} else {
+						// When local storage is disabled, fetch items from server
+						await this.get_items(true);
+						this.enter_event();
+
+						if (this.displayedItems && this.displayedItems.length > 0) {
+							setTimeout(() => {
+								this.update_items_details(this.displayedItems);
+							}, 300);
+						}
 					}
 				}
 
