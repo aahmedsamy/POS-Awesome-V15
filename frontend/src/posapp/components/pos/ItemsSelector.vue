@@ -596,6 +596,60 @@ export default {
 			});
 		},
 		showOnlyBarcodeItems() {},
+		// Watch search_input to trigger search when user types
+		search_input: {
+			handler: _.debounce(async function (newValue, oldValue) {
+				if (newValue === oldValue) return;
+
+				const trimmedQuery = (newValue || "").trim();
+
+				// If the input is a numeric string 12 characters or longer, treat it as a barcode
+				if (/^\d{12,}$/.test(trimmedQuery)) {
+					this.onBarcodeScanned(trimmedQuery);
+					return;
+				}
+
+				// For short queries, clear the filter
+				if (!trimmedQuery || trimmedQuery.length < 2) {
+					this.search_from_scanner = false;
+					return;
+				}
+
+				const fromScanner = this.search_from_scanner;
+
+				// Trigger search based on configuration
+				if (this.usesLimitSearch) {
+					const shouldForceServer =
+						!this.pos_profile?.posa_local_storage || !this.storageAvailable || !isOffline();
+					await this.get_items(shouldForceServer);
+				} else if (this.pos_profile && this.pos_profile.posa_local_storage) {
+					if (this.storageAvailable) {
+						await this.loadVisibleItems(true);
+						this.enter_event();
+					} else {
+						this.get_items(true);
+					}
+				} else {
+					// When local storage is disabled, fetch items from server
+					await this.get_items(true);
+					this.enter_event();
+
+					if (this.displayedItems && this.displayedItems.length > 0) {
+						setTimeout(() => {
+							this.update_items_details(this.displayedItems);
+						}, 300);
+					}
+				}
+
+				// Clear the input only when triggered via scanner
+				if (fromScanner) {
+					this.clearSearch();
+					this.focusItemSearch();
+					this.search_from_scanner = false;
+				}
+			}, 300),
+			immediate: false,
+		},
 	},
 
 	methods: {
