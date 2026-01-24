@@ -419,7 +419,7 @@ export const useItemsStore = defineStore("items", () => {
 		lastSearch.value = term;
 
 		if (!term || term.length < 2) {
-			if (limitSearchEnabled.value) {
+			if (limitSearchEnabled.value && !isOffline()) {
 				return clearLimitSearchResults({ preserveItems: true });
 			}
 
@@ -434,12 +434,7 @@ export const useItemsStore = defineStore("items", () => {
 			return filteredItems.value;
 		}
 
-		if (limitSearchEnabled.value) {
-			if (isOffline()) {
-				// In limit search + offline, we can only use what's in IndexedDB
-				// But limit search usually means no IndexedDB. We try local search as fallback.
-				return performLocalSearch(term, items.value);
-			}
+		if (limitSearchEnabled.value && !isOffline()) {
 			try {
 				await loadItems({
 					searchValue: term,

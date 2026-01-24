@@ -615,9 +615,10 @@ export default {
 				}
 
 				const fromScanner = this.search_from_scanner;
+				const searchCode = this.get_search(trimmedQuery);
 
 				// Always trigger search in store first - store handles offline/local/indexed logic
-				await this.searchItems(trimmedQuery);
+				await this.searchItems(searchCode);
 
 				// For online mode with specific settings, we might still need to trigger server calls
 				// but only if we are actually online
