@@ -272,8 +272,8 @@ export default {
 
 		return {
 			...responsive,
-			...rtl,
 			fly,
+			debouncedSearch: itemsIntegration.debouncedSearch,
 			cartValidation,
 			...itemsIntegration,
 			selectedCustomer,
@@ -596,8 +596,6 @@ export default {
 			});
 		},
 		showOnlyBarcodeItems() {
-			if (this.searchCache) this.searchCache.clear();
-			this.search_onchange();
 		},
 	},
 
@@ -754,14 +752,6 @@ export default {
 		getScaleBarcodePrefix() {
 			const prefix = this.scaleBarcodeSettings?.prefix;
 			return typeof prefix === "string" ? prefix.trim() : "";
-					return searchWords.every((word) => {
-						return searchable.some((field) => field.includes(word));
-					});
-				});
-			}
-
-			perfMarkEnd("pos:search-filter", mark);
-			return filtered;
 		},
 
 		async fetchServerItemsTimestamp() {
@@ -1346,7 +1336,7 @@ export default {
 			// 2. Reset search if empty to ensure full load
 			if (!this.search_input || !this.search_input.trim()) {
 				this.search_input = "";
-				this.search = "";
+				this.search_input = "";
 			}
 
 			// 3. Delegate to Store for full cache wipe and reload
@@ -1530,9 +1520,7 @@ export default {
 			const pendingSearch = this.pendingItemSearch;
 			this.pendingItemSearch = null;
 			if (pendingSearch) {
-				this.search_onchange(pendingSearch);
-				if (this.search_onchange.flush) {
-					this.search_onchange.flush();
+				this.debouncedSearch(pendingSearch);
 				}
 				return;
 			}
@@ -1799,7 +1787,7 @@ export default {
 			// Derive the searchable code and detect scale barcode
 			const search = this.get_search(searchTerm);
 			const isScaleBarcode = this.scaleBarcodeMatches(searchTerm);
-			this.search = search;
+			this.search_input = search;
 
 			const qty = parseFloat(this.get_item_qty(searchTerm));
 			const new_item = { ...this.displayedItems[0] };
@@ -2543,7 +2531,7 @@ export default {
 			this.search_from_scanner = true;
 			// apply scanned code as search term
 			this.search_input = sCode;
-			this.search = sCode;
+			this.search_input = sCode;
 			this.pendingScanCode = sCode;
 
 			this.$nextTick(() => {
@@ -2569,7 +2557,7 @@ export default {
 		restoreSearch() {
 			if (this.search_input === "") {
 				this.search_input = this.search_backup;
-				this.search = this.search_backup;
+				this.search_input = this.search_backup;
 				// No need to reload items when focus is lost
 			}
 		},
@@ -2742,8 +2730,6 @@ export default {
 				return;
 			}
 
-			if (this.search_onchange.cancel) {
-				this.search_onchange.cancel();
 			}
 
 			// Clear the search field immediately to allow for rapid scanning
@@ -3246,7 +3232,7 @@ export default {
 				}
 
 				this.search_input = scannedCode;
-				this.search = scannedCode;
+				this.search_input = scannedCode;
 				this.showScanError({
 					message: `${this.__("Item not found")}: ${scannedCode}`,
 					code: scannedCode,
@@ -3256,7 +3242,7 @@ export default {
 			} catch (e) {
 				console.error("Error fetching item from barcode:", e);
 				this.search_input = scannedCode;
-				this.search = scannedCode;
+				this.search_input = scannedCode;
 				this.showScanError({
 					message: `${this.__("Item not found")}: ${scannedCode}`,
 					code: scannedCode,
@@ -3603,7 +3589,7 @@ export default {
 			console.warn("Item not found for scanned code:", scannedCode);
 
 			this.search_input = scannedCode;
-			this.search = scannedCode;
+			this.search_input = scannedCode;
 			this.showScanError({
 				message: `${this.__("Item not found")}: ${scannedCode}`,
 				code: scannedCode,
@@ -4055,7 +4041,7 @@ export default {
 			// We trust the store to be the source of truth.
 
 			const searchTerm = this.get_search(this.search_input).trim().toLowerCase();
-			const activeStoreSearch = (this.search || "").trim().toLowerCase();
+			const activeStoreSearch = (this.search_input || "").trim().toLowerCase();
 
 			// Check if we need to apply local search filtering
 			// This happens when the user types but the store hasn't updated yet (debounce)
