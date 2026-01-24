@@ -1,29 +1,12 @@
 <template>
 	<div :style="responsiveStyles">
-		<v-dialog v-model="scanErrorDialog" persistent max-width="420" content-class="scan-error-dialog">
-			<v-card>
-				<v-card-title class="d-flex align-center text-error text-h6">
-					<v-icon color="error" class="mr-2">mdi-alert-octagon</v-icon>
-					{{ __("Scan Error") }}
-				</v-card-title>
-				<v-divider></v-divider>
-				<v-card-text>
-					<p class="scan-error-message">{{ scanErrorMessage }}</p>
-					<p v-if="scanErrorCode" class="scan-error-code mt-2 mb-0">
-						<strong>{{ __("Scanned Code:") }}</strong>
-						<span>{{ scanErrorCode }}</span>
-					</p>
-					<p v-if="scanErrorDetails" class="scan-error-details mt-4 mb-0">
-						{{ scanErrorDetails }}
-					</p>
-				</v-card-text>
-				<v-card-actions class="justify-end">
-					<v-btn color="primary" variant="tonal" autofocus @click="acknowledgeScanError">
-						{{ __("OK") }}
-					</v-btn>
-				</v-card-actions>
-			</v-card>
-		</v-dialog>
+		<ScanErrorDialog
+			v-model="scanErrorDialog"
+			:error-message="scanErrorMessage"
+			:error-code="scanErrorCode"
+			:error-details="scanErrorDetails"
+			@acknowledge="acknowledgeScanError"
+		/>
 		<v-card
 			:class="[
 				'selection mx-auto my-0 py-0 mt-3 pos-card dynamic-card resizable pos-themed-card',
@@ -43,10 +26,11 @@
 				absolute
 				location="top"
 				color="info"
+				class="z-index-10"
 			></v-progress-linear>
 
 			<!-- Add dynamic-padding wrapper like Invoice component -->
-			<div class="dynamic-padding">
+			<div class="dynamic-padding h-100 d-flex flex-column">
 				<ItemSearchBar
 					v-model:search-input="search_input"
 					v-model:qty="debounce_qty"
@@ -71,307 +55,40 @@
 					@toggle-settings="toggleItemSettings"
 					@reload-items="forceReloadItems"
 				/>
-				<v-row class="items">
-					<v-col cols="12" class="pt-0 mt-0">
-						<div v-if="items_view == 'card'" class="items-card-container">
-							<div v-if="isLoadingOrSyncing" class="items-card-grid">
-								<Skeleton v-for="n in 8" :key="n" class="mb-4" height="120" />
-							</div>
-							<div
-								v-else-if="displayedItems.length === 0"
-								class="d-flex flex-column align-center justify-center text-center fill-height pa-4"
-								style="height: 100%; min-height: 200px"
-							>
-								<v-icon size="64" color="grey-lighten-1" class="mb-4"
-									>mdi-package-variant-closed</v-icon
-								>
-								<div class="text-h6 text-medium-emphasis mb-1">
-									{{ __("No items found") }}
-								</div>
-								<div class="text-body-2 text-medium-emphasis">
-									{{ __("Try adjusting your search or filters") }}
-								</div>
-								<v-btn
-									v-if="search_input || (item_group && item_group !== 'ALL')"
-									variant="text"
-									color="primary"
-									class="mt-4"
-									@click="clearSearch"
-								>
-									{{ __("Clear Search") }}
-								</v-btn>
-							</div>
-							<RecycleScroller
-								v-else
-								ref="itemsContainer"
-								class="virtual-scroller"
-								:list-class="['items-virtual-list', { 'item-container': isOverflowing }]"
-								:items="displayedItems"
-								key-field="item_code"
-								:item-size="cardSlotHeight"
-								:grid-items="cardColumns"
-								:item-secondary-size="cardSlotWidth"
-								:buffer="virtualScrollBuffer"
-								:emit-update="true"
-								@update="onVirtualRangeUpdate"
-							>
-								<template #default="{ item }">
-									<div
-										v-if="item"
-										:key="item.item_code"
-										:class="[
-											'card-item-card',
-											{ 'item-highlighted': isItemHighlighted(item) },
-										]"
-										:style="{
-											width: cardColumnWidth + 'px',
-											height: cardRowHeight + 'px',
-										}"
-										@click="select_item($event, item)"
-										:draggable="true"
-										@dragstart="onDragStart($event, item)"
-										@dragend="onDragEnd"
-									>
-										<div class="card-item-image-container">
-											<v-img
-												:src="item.image || placeholderImage"
-												class="card-item-image"
-												aspect-ratio="1"
-												:alt="item.item_name"
-											>
-												<template #placeholder>
-													<div class="image-placeholder">
-														<v-icon size="40" color="grey-lighten-2">
-															mdi-image
-														</v-icon>
-													</div>
-												</template>
-											</v-img>
-										</div>
-										<div class="card-item-content">
-											<div class="card-item-header">
-												<h4 class="card-item-name">{{ item.item_name }}</h4>
-												<span class="card-item-code">{{ item.item_code }}</span>
-											</div>
-											<div class="card-item-details">
-												<div class="card-item-price">
-													<div class="primary-price">
-														<span class="currency-symbol">
-															{{
-																currencySymbol(
-																	item.original_currency ||
-																		pos_profile.currency,
-																)
-															}}
-														</span>
-														<span
-															v-if="context === 'purchase'"
-															class="price-amount"
-														>
-															{{
-																memoizedFormatCurrency(
-																	item.rate || item.standard_rate || 0,
-																	pos_profile.currency,
-																	ratePrecision(
-																		item.rate || item.standard_rate || 0,
-																	),
-																)
-															}}
-														</span>
-														<span v-else class="price-amount">
-															{{
-																memoizedFormatCurrency(
-																	item.original_rate ?? item.rate ?? 0,
-																	item.original_currency ||
-																		pos_profile.currency,
-																	ratePrecision(
-																		item.original_rate ?? item.rate ?? 0,
-																	),
-																)
-															}}
-														</span>
-													</div>
-													<div
-														v-if="
-															context !== 'purchase' &&
-															pos_profile.posa_allow_multi_currency &&
-															selected_currency !== pos_profile.currency
-														"
-														class="secondary-price"
-													>
-														<span class="currency-symbol">
-															{{ currencySymbol(selected_currency) }}
-														</span>
-														<span class="price-amount">
-															{{
-																memoizedFormatCurrency(
-																	item.rate,
-																	selected_currency,
-																	ratePrecision(item.rate),
-																)
-															}}
-														</span>
-													</div>
-													<div
-														v-if="getLastInvoiceRate(item)"
-														class="last-rate-chip"
-													>
-														<v-icon size="14" class="mr-1" color="secondary"
-															>mdi-history</v-icon
-														>
-														<span class="last-rate-label">{{ __("Last") }}:</span>
-														<span class="last-rate-value">
-															{{
-																currencySymbol(
-																	getLastInvoiceRate(item).currency ||
-																		pos_profile.currency,
-																)
-															}}
-															{{
-																memoizedFormatCurrency(
-																	getLastInvoiceRate(item).rate,
-																	getLastInvoiceRate(item).currency ||
-																		pos_profile.currency,
-																	ratePrecision(
-																		getLastInvoiceRate(item).rate || 0,
-																	),
-																)
-															}}
-															<span
-																v-if="getLastInvoiceRate(item).uom"
-																class="last-rate-uom"
-															>
-																/{{ getLastInvoiceRate(item).uom }}
-															</span>
-														</span>
-													</div>
-												</div>
-												<div class="card-item-stock">
-													<v-icon size="small" class="stock-icon">
-														mdi-package-variant
-													</v-icon>
-													<span
-														class="stock-amount"
-														:class="{
-															'negative-number': isNegative(item.actual_qty),
-														}"
-													>
-														{{
-															memoizedFormatNumber(
-																item.actual_qty,
-																hide_qty_decimals ? 0 : 4,
-															) || 0
-														}}
-													</span>
-													<span class="stock-uom">{{ item.stock_uom || "" }}</span>
-												</div>
-											</div>
-										</div>
-									</div>
-								</template>
-							</RecycleScroller>
-						</div>
-						<div v-else class="items-table-container">
-							<v-data-table-virtual
-								ref="itemsTable"
-								:headers="headers"
-								:items="displayedItems"
-								class="sleek-data-table overflow-y-auto"
-								:style="{ height: 'calc(100% - 80px)' }"
-								item-key="item_code"
-								fixed-header
-								height="100%"
-								:header-props="headerProps"
-								:no-data-text="__('No items found')"
-								@click:row="click_item_row"
-								:item-class="getItemRowClass"
-								:row-props="getItemRowProps"
-								@scroll.passive="onListScroll"
-							>
-								<template v-slot:item.rate="{ item }">
-									<div v-if="context !== 'purchase'">
-										<div class="text-primary">
-											{{
-												currencySymbol(item.original_currency || pos_profile.currency)
-											}}
-											{{
-												memoizedFormatCurrency(
-													item.original_rate ?? item.rate ?? 0,
-													item.original_currency || pos_profile.currency,
-													ratePrecision(item.original_rate ?? item.rate ?? 0),
-												)
-											}}
-										</div>
-										<div
-											v-if="getLastInvoiceRate(item)"
-											class="text-caption d-flex align-center last-rate-inline"
-										>
-											<v-icon size="14" class="mr-1" color="secondary"
-												>mdi-history</v-icon
-											>
-											<span class="mr-1">{{ __("Last") }}:</span>
-											<span class="font-weight-medium">
-												{{
-													currencySymbol(
-														getLastInvoiceRate(item).currency ||
-															pos_profile.currency,
-													)
-												}}
-												{{
-													memoizedFormatCurrency(
-														getLastInvoiceRate(item).rate,
-														getLastInvoiceRate(item).currency ||
-															pos_profile.currency,
-														ratePrecision(getLastInvoiceRate(item).rate || 0),
-													)
-												}}
-												<span
-													v-if="getLastInvoiceRate(item).uom"
-													class="last-rate-uom"
-												>
-													/{{ getLastInvoiceRate(item).uom }}
-												</span>
-											</span>
-										</div>
-										<div
-											v-if="
-												pos_profile.posa_allow_multi_currency &&
-												selected_currency !== pos_profile.currency
-											"
-											class="text-success"
-										>
-											{{ currencySymbol(selected_currency) }}
-											{{
-												memoizedFormatCurrency(
-													item.rate,
-													selected_currency,
-													ratePrecision(item.rate),
-												)
-											}}
-										</div>
-									</div>
-									<div v-else class="text-primary">
-										{{ currencySymbol(pos_profile.currency) }}
-										{{
-											memoizedFormatCurrency(
-												item.rate || item.standard_rate || 0,
-												pos_profile.currency,
-												ratePrecision(item.rate || item.standard_rate || 0),
-											)
-										}}
-									</div>
-								</template>
-								<template v-slot:item.actual_qty="{ item }">
-									<span
-										class="golden--text"
-										:class="{ 'negative-number': isNegative(item.actual_qty) }"
-										>{{
-											memoizedFormatNumber(item.actual_qty, hide_qty_decimals ? 0 : 4)
-										}}</span
-									>
-								</template>
-							</v-data-table-virtual>
-						</div>
+
+				<v-row class="items flex-grow-1 overflow-hidden ma-0">
+					<v-col cols="12" class="pt-0 mt-0 h-100 pa-0">
+						<ItemsList
+							ref="itemsList"
+							:items-view="items_view"
+							:is-loading-or-syncing="isLoadingOrSyncing"
+							:displayed-items="displayedItems"
+							:has-filter="!!(search_input || (item_group && item_group !== 'ALL'))"
+							:pos-profile="pos_profile"
+							:context="context"
+							:selected-currency="selected_currency"
+							:hide-qty-decimals="hide_qty_decimals"
+							:card-slot-height="cardSlotHeight"
+							:card-slot-width="cardSlotWidth"
+							:card-columns="cardColumns"
+							:card-column-width="cardColumnWidth"
+							:card-row-height="cardRowHeight"
+							:virtual-scroll-buffer="virtualScrollBuffer"
+							:is-overflowing="isOverflowing"
+							:headers="headers"
+							:header-props="headerProps"
+							:highlighted-index="highlightedIndex"
+							:highlighted-item-code="highlightedItemCode"
+							:last-invoice-rates="lastInvoiceRates"
+							:show-last-invoice-rate="show_last_invoice_rate"
+							@clear-search="clearSearch"
+							@virtual-range-update="onVirtualRangeUpdate"
+							@select-item="select_item"
+							@drag-start="onDragStart"
+							@drag-end="onDragEnd"
+							@click-row="click_item_row"
+							@list-scroll="onListScroll"
+						/>
 					</v-col>
 				</v-row>
 			</div>
@@ -482,6 +199,8 @@ import CameraScanner from "./CameraScanner.vue";
 import NewItemDialog from "./items/NewItemDialog.vue";
 import ItemSettingsDialog from "./items/ItemSettingsDialog.vue";
 import ItemSearchBar from "./items/ItemSearchBar.vue";
+import ScanErrorDialog from "./items/ScanErrorDialog.vue";
+import ItemsList from "./items/ItemsList.vue";
 import { ensurePosProfile } from "../../../utils/pos_profile.js";
 import "vue-virtual-scroller/dist/vue-virtual-scroller.css";
 import { RecycleScroller } from "vue-virtual-scroller";
@@ -536,14 +255,20 @@ export default {
 
 		// Initialize Pinia store integration
 		const itemsIntegration = useItemsIntegration({
-			// Disable integration debounce since ItemsSelector manages its own debounce
-			// This prevents a double-debounce delay (300ms + 300ms = 600ms)
-			enableDebounce: false,
+			// Enable integration debounce as we removed local debounce
+			enableDebounce: true,
 			debounceDelay: 300,
 		});
 
 		const customersStore = useCustomersStore();
 		const { selectedCustomer } = storeToRefs(customersStore);
+
+		const clearSearch = () => {
+			itemsIntegration.search.value = "";
+			if (itemsIntegration.clearLimitSearchResults) {
+				itemsIntegration.clearLimitSearchResults();
+			}
+		};
 
 		return {
 			...responsive,
@@ -552,6 +277,9 @@ export default {
 			cartValidation,
 			...itemsIntegration,
 			selectedCustomer,
+			clearSearch,
+			// map search computed to search_input for template compatibility (if needed)
+			search_input: itemsIntegration.search,
 		};
 	},
 	components: {
@@ -561,6 +289,8 @@ export default {
 		NewItemDialog,
 		ItemSettingsDialog,
 		ItemSearchBar,
+		ScanErrorDialog,
+		ItemsList,
 	},
 	props: {
 		context: {
@@ -579,9 +309,6 @@ export default {
 		flags: {},
 		customer: "",
 		items_view: "list",
-		first_search: "",
-		search_input: "",
-		search_backup: "",
 		// Limit the displayed items to avoid overly large lists
 		itemsPerPage: 50,
 		offersCount: 0,
@@ -679,11 +406,6 @@ export default {
 		// Require scanner-like speed to avoid triggering on manual typing
 		keyboardScanMaxInterval: 45,
 		keyboardScanMaxDuration: 250,
-		keyboardScanProcessingDelay: 100,
-		highlightedIndex: -1,
-		highlightedItemCode: null,
-		lastInvoiceRates: {},
-		lastInvoiceRateScheduler: null,
 		lastInvoiceRateLoading: false,
 	}),
 
@@ -830,24 +552,6 @@ export default {
 		},
 		displayedItems(new_value, old_value) {
 			// Update item details if items changed
-			if (!this.usesLimitSearch && new_value.length !== old_value.length) {
-				this.update_items_details(new_value);
-			}
-			this.$nextTick(() => {
-				this.checkItemContainerOverflow();
-				this.scheduleCardMetricsUpdate();
-			});
-			this.scheduleLastInvoiceRateRefresh();
-			this.syncHighlightedItem();
-		},
-		// Automatically search when the query has at least 3 characters
-		first_search: _.debounce(function (val, oldVal) {
-			if (this.clearingSearch) {
-				return;
-			}
-			const newLen = (val || "").trim().length;
-			const oldLen = (oldVal || "").trim().length;
-
 			// Check if we should trigger search
 			if (newLen >= 3) {
 				// Call without arguments so search_onchange treats it like an Enter key/Auto trigger
@@ -1053,99 +757,6 @@ export default {
 		getScaleBarcodePrefix() {
 			const prefix = this.scaleBarcodeSettings?.prefix;
 			return typeof prefix === "string" ? prefix.trim() : "";
-		},
-		scaleBarcodeMatches(value) {
-			const prefix = this.getScaleBarcodePrefix();
-			if (!prefix) {
-				return false;
-			}
-			return String(value || "").startsWith(prefix);
-		},
-		// Performance optimization: Memoized search function
-		memoizedSearch(searchTerm, itemGroup) {
-			const cacheKey = `${searchTerm || ""}_${itemGroup || "ALL"}_${this.showOnlyBarcodeItems}`;
-
-			// Check if we have a cached result
-			if (this.searchCache && this.searchCache.has(cacheKey)) {
-				const cachedResult = this.searchCache.get(cacheKey);
-				return cachedResult;
-			}
-
-			// Perform the search
-			const result = this.performSearch(searchTerm, itemGroup);
-
-			// Cache the result
-			if (this.searchCache) {
-				this.searchCache.set(cacheKey, result);
-			}
-
-			return result;
-		},
-
-		performSearch(searchTerm, itemGroup) {
-			const mark = perfMarkStart("pos:search-filter");
-			if (!this.items || !this.items.length) {
-				perfMarkEnd("pos:search-filter", mark);
-				return [];
-			}
-
-			let filtered = this.items;
-
-			// Filter only barcode items if enabled
-			if (this.showOnlyBarcodeItems) {
-				filtered = filtered.filter((item) => {
-					return (
-						item.barcode ||
-						(Array.isArray(item.barcodes) && item.barcodes.length > 0) ||
-						(Array.isArray(item.item_barcode) && item.item_barcode.length > 0)
-					);
-				});
-			}
-
-			// Filter by item group
-			if (itemGroup !== "ALL") {
-				const group = itemGroup.toLowerCase();
-				filtered = filtered.filter(
-					(item) => item.item_group && item.item_group.toLowerCase() === group,
-				);
-			}
-
-			// Filter by search term
-			const rawSearch = (searchTerm || "").trim();
-			if (rawSearch && rawSearch.length >= 3) {
-				const term = rawSearch.toLowerCase();
-				const searchWords = term.split(/\s+/).filter(Boolean);
-
-				filtered = filtered.filter((item) => {
-					if (!searchWords.length) return true;
-
-					// Collect all searchable values into a single string or array for checking
-					const searchable = [];
-					const pushValue = (v) => {
-						if (v) searchable.push(String(v).toLowerCase());
-					};
-
-					pushValue(item.item_code);
-					pushValue(item.item_name);
-					pushValue(item.barcode);
-					pushValue(item.description);
-					pushValue(item.brand);
-
-					// Handle arrays (barcodes, serials, batches)
-					if (Array.isArray(item.item_barcode)) {
-						item.item_barcode.forEach((b) => pushValue(b?.barcode));
-					}
-					if (Array.isArray(item.barcodes)) {
-						item.barcodes.forEach((b) => pushValue(b));
-					}
-					if (Array.isArray(item.serial_no_data)) {
-						item.serial_no_data.forEach((s) => pushValue(s?.serial_no));
-					}
-					if (Array.isArray(item.batch_no_data)) {
-						item.batch_no_data.forEach((b) => pushValue(b?.batch_no));
-					}
-
-					// Verify EVERY search word is present in AT LEAST ONE of the fields
 					return searchWords.every((word) => {
 						return searchable.some((field) => field.includes(word));
 					});
@@ -1185,7 +796,10 @@ export default {
 		},
 		updateCardContainerMetrics() {
 			this.$nextTick(() => {
-				const ref = this.$refs.itemsContainer;
+				const itemsList = this.$refs.itemsList;
+				if (!itemsList) return;
+
+				const ref = itemsList.$refs.itemsContainer;
 				const el = ref && ref.$el ? ref.$el : ref;
 				if (!el || typeof el.getBoundingClientRect !== "function") {
 					return;
@@ -1227,7 +841,10 @@ export default {
 
 			this.scrollThrottle = requestAnimationFrame(() => {
 				try {
-					const el = this.$refs.itemsContainer;
+					const itemsList = this.$refs.itemsList;
+					if (!itemsList) return;
+
+					const el = itemsList.$refs.itemsContainer;
 					if (!el) return;
 
 					const scrollTop = el.scrollTop;
@@ -1342,7 +959,13 @@ export default {
 		},
 
 		checkItemContainerOverflow() {
-			const ref = this.$refs.itemsContainer;
+			const itemsList = this.$refs.itemsList;
+			if (!itemsList) {
+				this.isOverflowing = false;
+				return;
+			}
+
+			const ref = itemsList.$refs.itemsContainer;
 			const el = ref && ref.$el ? ref.$el : ref;
 			if (!el) {
 				this.isOverflowing = false;
@@ -1363,7 +986,6 @@ export default {
 			this.isOverflowing = el.scrollHeight > availableHeight;
 			this.scheduleCardMetricsUpdate();
 		},
-
 		async fetchItemDetails(items) {
 			if (!items || items.length === 0) {
 				return [];
@@ -2250,75 +1872,6 @@ export default {
 			if (this.highlightedIndex >= 0) {
 				if (event && typeof event.preventDefault === "function") {
 					event.preventDefault();
-				}
-				this.selectHighlightedItem();
-				return;
-			}
-			if (this.search_onchange.cancel) {
-				this.search_onchange.cancel();
-			}
-			this._performSearch();
-		},
-		search_onchange: _.debounce(function () {
-			this._performSearch();
-		}, 300),
-
-		async _performSearch() {
-			const vm = this;
-
-			vm.cancelItemDetailsRequest();
-
-			// Determine the actual query string and trim whitespace
-			const trimmedQuery = (vm.first_search || "").trim();
-
-			// Keep first_search in sync with the value we are about to search for
-			vm.first_search = trimmedQuery;
-
-			// If the input is a numeric string 12 characters or longer, treat it as a barcode
-			if (/^\d{12,}$/.test(trimmedQuery)) {
-				vm.onBarcodeScanned(trimmedQuery);
-				return;
-			}
-
-			// Require a minimum of three characters before running a search
-			if (!trimmedQuery || trimmedQuery.length < 3) {
-				vm.search_from_scanner = false;
-				return;
-			}
-
-			// If background loading is in progress, defer the search without changing the active query
-			if (vm.isBackgroundLoading) {
-				vm.pendingItemSearch = trimmedQuery;
-				return;
-			}
-
-			vm.search = trimmedQuery;
-
-			const fromScanner = vm.search_from_scanner;
-
-			if (vm.usesLimitSearch) {
-				const shouldForceServer =
-					!vm.pos_profile.posa_local_storage || !vm.storageAvailable || !isOffline();
-				await vm.get_items(shouldForceServer);
-			} else if (vm.pos_profile && vm.pos_profile.posa_local_storage) {
-				if (vm.storageAvailable) {
-					await vm.loadVisibleItems(true);
-					vm.enter_event();
-				} else {
-					vm.get_items(true);
-				}
-			} else {
-				// When local storage is disabled, always fetch items
-				// from the server so searches aren't limited to the
-				// initially loaded set.
-				await vm.get_items(true);
-				vm.enter_event();
-
-				if (vm.displayedItems && vm.displayedItems.length > 0) {
-					setTimeout(() => {
-						vm.update_items_details(vm.displayedItems);
-					}, 300);
-				}
 			}
 
 			// Clear the input only when triggered via scanner
@@ -3031,94 +2584,6 @@ export default {
 					for (let i = 0; i < arr.length; i++) {
 						const current = arr.slice();
 						const next = current.splice(i, 1);
-						permute(current.slice(), m.concat(next));
-					}
-				}
-			}
-
-			permute(words);
-
-			return combinations;
-		},
-		clearSearch() {
-			this.resetKeyboardScanDetection();
-			if (this.clearingSearch) {
-				return;
-			}
-
-			const hadQuery = Boolean(
-				(this.first_search && this.first_search.trim()) || (this.search && this.search.trim()),
-			);
-			const shouldReload = hadQuery || !this.itemsLoaded || !this.items.length;
-
-			this.search_backup = this.first_search;
-			this.clearingSearch = true;
-			this.search_input = "";
-			this.first_search = "";
-			this.search = "";
-
-			const release = () => {
-				this.$nextTick(() => {
-					this.clearingSearch = false;
-				});
-			};
-
-			if (this.usesLimitSearch) {
-				const preservedItems =
-					this.clearLimitSearchResults({ preserveItems: true }) || this.items || [];
-				this.resetBarcodeIndex();
-
-				if (Array.isArray(preservedItems) && preservedItems.length) {
-					this.eventBus.emit("set_all_items", preservedItems);
-				} else if (Array.isArray(this.items) && this.items.length) {
-					this.eventBus.emit("set_all_items", this.items);
-				}
-
-				if (shouldReload) {
-					this.eventBus.emit("data-load-progress", { name: "items", progress: 0 });
-					const reloadPromise = this.get_items(true);
-					if (reloadPromise && typeof reloadPromise.finally === "function") {
-						reloadPromise.finally(release);
-						return reloadPromise;
-					}
-				}
-
-				release();
-				return;
-			}
-
-			if (!shouldReload) {
-				release();
-				return;
-			}
-
-			if (this.pos_profile?.posa_local_storage && this.storageAvailable) {
-				this.loadVisibleItems(true);
-				if (!this.isBackgroundLoading) {
-					this.verifyServerItemCount();
-				}
-				release();
-				return;
-			}
-
-			if (this.isBackgroundLoading) {
-				if (this.pendingGetItems) {
-					this.pendingGetItems.force_server = this.pendingGetItems.force_server || false;
-				} else {
-					this.pendingGetItems = { force_server: false };
-				}
-				release();
-				return;
-			}
-
-			if (!this.itemsLoaded || !this.items.length) {
-				this.get_items(true);
-			} else {
-				this.eventBus.emit("set_all_items", this.items);
-			}
-
-			release();
-		},
 
 		restoreSearch() {
 			if (this.first_search === "") {
