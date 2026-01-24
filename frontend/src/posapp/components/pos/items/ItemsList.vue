@@ -32,7 +32,7 @@
 				class="virtual-scroller h-100"
 				:list-class="['items-virtual-list', { 'item-container': isOverflowing }]"
 				:items="displayedItems"
-				key-field="item_code"
+				key-field="_unique_id"
 				:item-size="cardSlotHeight"
 				:grid-items="cardColumns"
 				:item-secondary-size="cardSlotWidth"
@@ -43,7 +43,7 @@
 				<template #default="{ item }">
 					<div
 						v-if="item"
-						:key="item.item_code"
+						:key="item._unique_id"
 						:class="['card-item-card', { 'item-highlighted': isItemHighlighted(item) }]"
 						:style="{
 							width: cardColumnWidth + 'px',
@@ -167,7 +167,7 @@
 				:headers="headers"
 				:items="displayedItems"
 				class="sleek-data-table overflow-y-auto h-100"
-				item-key="item_code"
+				item-key="_unique_id"
 				fixed-header
 				height="100%"
 				:header-props="headerProps"

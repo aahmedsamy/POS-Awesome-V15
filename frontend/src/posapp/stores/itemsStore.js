@@ -745,17 +745,36 @@ export const useItemsStore = defineStore("items", () => {
 		const normalizedGroup =
 			typeof itemGroup.value === "string" && itemGroup.value.length > 0 ? itemGroup.value : "ALL";
 
+		const processedItems = Array.isArray(newItems)
+			? newItems.map((item) => {
+					if (!item) return item;
+					// Create a unique ID for rendering to avoid collisions between item/batch/serial
+					// with same item_code
+					const uniqueId = [item.item_code, item.batch_no || "", item.serial_no || ""]
+						.filter(Boolean)
+						.join(":");
+					return { ...item, _unique_id: uniqueId };
+				})
+			: [];
+
 		if (!append) {
-			items.value = Array.isArray(newItems) ? [...newItems] : [];
+			items.value = processedItems;
 			resetIndexes();
 			updateIndexes(items.value);
-		} else if (Array.isArray(newItems) && newItems.length) {
+		} else if (processedItems.length) {
 			const additions = [];
-			newItems.forEach((item) => {
-				if (!item || !item.item_code || itemsMap.value.has(item.item_code)) {
+			processedItems.forEach((item) => {
+				if (!item || !item.item_code) {
 					return;
 				}
-				additions.push(item);
+				// Use _unique_id for duplicate check if we have it
+				const exists =
+					additions.some((a) => a._unique_id === item._unique_id) ||
+					items.value.some((i) => i._unique_id === item._unique_id);
+
+				if (!exists) {
+					additions.push(item);
+				}
 			});
 
 			if (additions.length) {
@@ -821,7 +840,13 @@ export const useItemsStore = defineStore("items", () => {
 			if (!item || !item.item_code) {
 				return;
 			}
-			itemsMap.value.set(item.item_code, item);
+
+			// Priority: If it's a base item (no batch/serial), it should be the primary mapping
+			// OR if nothing mapped yet. This prevents batch-matches from overwriting base item in map.
+			const existing = itemsMap.value.get(item.item_code);
+			if (!existing || (!item.batch_no && !item.serial_no)) {
+				itemsMap.value.set(item.item_code, item);
+			}
 
 			if (Array.isArray(item.item_barcode)) {
 				item.item_barcode.forEach((entry) => {
