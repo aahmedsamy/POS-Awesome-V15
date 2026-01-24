@@ -1,7 +1,7 @@
 <template>
-	<div>
-		<div v-if="itemsView === 'card'" class="items-card-container">
-			<div v-if="isLoadingOrSyncing" class="items-card-grid">
+	<div class="h-100">
+		<div v-if="itemsView === 'card'" class="items-card-container h-100">
+			<div v-if="isLoadingOrSyncing" class="items-card-grid h-100">
 				<Skeleton v-for="n in 8" :key="n" class="mb-4" height="120" />
 			</div>
 			<div
@@ -29,7 +29,7 @@
 			<RecycleScroller
 				v-else
 				ref="itemsContainer"
-				class="virtual-scroller"
+				class="virtual-scroller h-100"
 				:list-class="['items-virtual-list', { 'item-container': isOverflowing }]"
 				:items="displayedItems"
 				key-field="item_code"
@@ -161,13 +161,12 @@
 				</template>
 			</RecycleScroller>
 		</div>
-		<div v-else class="items-table-container">
+		<div v-else class="items-table-container h-100">
 			<v-data-table-virtual
 				ref="itemsTable"
 				:headers="headers"
 				:items="displayedItems"
-				class="sleek-data-table overflow-y-auto"
-				:style="{ height: 'calc(100% - 80px)' }"
+				class="sleek-data-table overflow-y-auto h-100"
 				item-key="item_code"
 				fixed-header
 				height="100%"
@@ -244,6 +243,7 @@
 
 <script>
 /* global frappe, get_currency_symbol */
+import "vue-virtual-scroller/dist/vue-virtual-scroller.css";
 import { RecycleScroller } from "vue-virtual-scroller";
 import Skeleton from "../../ui/Skeleton.vue";
 import placeholderImage from "../placeholder-image.png";

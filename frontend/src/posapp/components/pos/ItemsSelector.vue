@@ -56,7 +56,7 @@
 					@reload-items="forceReloadItems"
 				/>
 
-				<v-row class="items flex-grow-1 overflow-hidden ma-0">
+				<v-row class="items flex-grow-1 overflow-hidden ma-0 h-100">
 					<v-col cols="12" class="pt-0 mt-0 h-100 pa-0">
 						<ItemsList
 							ref="itemsList"
@@ -1024,17 +1024,20 @@ export default {
 				return;
 			}
 
-			const containerHeight = parseFloat(getComputedStyle(el).getPropertyValue("--container-height"));
-			if (isNaN(containerHeight)) {
+			// Get the actual available height from the parent row/col container in pixels
+			const container = el.closest(".items");
+			if (!container) {
 				this.isOverflowing = false;
 				return;
 			}
 
-			const stickyHeader = el.closest(".dynamic-padding")?.querySelector(".sticky-header");
-			const headerHeight = stickyHeader ? stickyHeader.offsetHeight : 0;
-			const availableHeight = containerHeight - headerHeight;
+			const availableHeight = container.clientHeight;
 
-			el.style.maxHeight = `${availableHeight}px`;
+			if (availableHeight > 0) {
+				el.style.height = `${availableHeight}px`;
+				el.style.maxHeight = `${availableHeight}px`;
+			}
+
 			this.isOverflowing = el.scrollHeight > availableHeight;
 			this.scheduleCardMetricsUpdate();
 		},
@@ -4743,7 +4746,7 @@ export default {
 	grid-template-columns: repeat(3, 1fr);
 	gap: 16px;
 	padding: 16px;
-	height: calc(100% - 80px);
+	height: 100%;
 	overflow-y: auto;
 	scrollbar-width: thin;
 	scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
@@ -4754,7 +4757,7 @@ export default {
 }
 
 .virtual-scroller {
-	height: calc(100% - 80px);
+	height: 100%;
 	overflow-y: auto;
 	position: relative;
 }
