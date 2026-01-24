@@ -52,6 +52,7 @@ import { useLoading } from "./composables/useLoading.js";
 import { usePosShift } from "./composables/usePosShift.js";
 import { loadingState, initLoadingSources, setSourceProgress, markSourceLoaded } from "./utils/loading.js";
 import { useCustomersStore } from "./stores/customersStore.js";
+import { useAppStore } from "./stores/appStore.js";
 import { storeToRefs } from "pinia";
 import {
 	getOpeningStorage,
@@ -84,6 +85,7 @@ import {
 	checkExternalConnectivity,
 	checkWebSocketConnectivity,
 } from "./composables/useNetwork.js";
+import { useAppEvents } from "./composables/useAppEvents.js";
 import { useRtl } from "./composables/useRtl.js";
 
 export default {
@@ -91,37 +93,58 @@ export default {
 		const { isRtl, rtlStyles, rtlClasses } = useRtl();
 		const { overlayVisible } = useLoading();
 		const { get_closing_data } = usePosShift();
+
+		const appStore = useAppStore();
+		const {
+			networkOnline,
+			serverOnline,
+			serverConnecting,
+			isIpHost,
+			manualOffline,
+			syncTotals,
+			cacheUsage,
+			cacheUsageDetails,
+			cacheUsageLoading,
+			currentPage: page,
+			posProfile,
+			pendingInvoices,
+			lastInvoiceId,
+		} = storeToRefs(appStore);
+
 		return {
 			isRtl,
 			rtlStyles,
 			rtlClasses,
 			globalLoading: overlayVisible,
 			get_closing_data,
+			appStore,
+			// Expose state for template and Options API
+			networkOnline,
+			serverOnline,
+			serverConnecting,
+			isIpHost,
+			manualOffline,
+			syncTotals,
+			cacheUsage,
+			cacheUsageDetails,
+			cacheUsageLoading,
+			page,
+			posProfile,
+			pendingInvoices,
+			lastInvoiceId,
 		};
 	},
 	data: function () {
 		return {
-			page: "POS",
+			// Local UI state not worth moving to store yet
+		};
+	},
+	data: function () {
+		return {
 			// POS Profile data
 			posProfile: {},
 			pendingInvoices: 0,
 			lastInvoiceId: "",
-
-			// Network status
-			networkOnline: navigator.onLine || false,
-			serverOnline: false,
-			serverConnecting: false,
-			internetReachable: false,
-			isIpHost: false,
-
-			// Sync data
-			syncTotals: { pending: 0, synced: 0, drafted: 0 },
-			manualOffline: false,
-
-			// Cache data
-			cacheUsage: 0,
-			cacheUsageLoading: false,
-			cacheUsageDetails: { total: 0, indexedDB: 0, localStorage: 0 },
 
 			// Loading progress handled via utility
 		};
@@ -172,7 +195,7 @@ export default {
 		initLoadingSources(["init", "items", "customers"]);
 		this.initializeData();
 		this.setupNetworkListeners();
-		this.setupEventListeners();
+		useAppEvents(this.eventBus, this.appStore, this);
 		this.handleRefreshCacheUsage();
 		const customersStore = useCustomersStore();
 		const { loadProgress, customersLoaded } = storeToRefs(customersStore);
@@ -207,134 +230,12 @@ export default {
 		},
 
 		async initializeData() {
-			await initPromise;
-			await memoryInitPromise;
-			checkDbHealth().catch(() => {});
-			// Load POS profile from cache or storage
-			const openingData = getOpeningStorage();
-			if (openingData && openingData.pos_profile) {
-				this.posProfile = openingData.pos_profile;
-				if (navigator.onLine) {
-					await this.refreshTaxInclusiveSetting();
-				}
+			await this.appStore.initializeData();
+
+			// Post-init checks that rely on Frappe/UI context
+			if (this.posProfile && this.posProfile.name && navigator.onLine) {
+				await this.refreshTaxInclusiveSetting();
 			}
-
-			if (queueHealthCheck()) {
-				alert("Offline queue is too large. Old entries will be purged.");
-				purgeOldQueueEntries();
-			}
-
-			this.pendingInvoices = getPendingOfflineInvoiceCount();
-			this.syncTotals = getLastSyncTotals();
-
-			getCacheUsageEstimate()
-				.then((usage) => {
-					if (usage.percentage > 90) {
-						alert("Local cache nearing capacity. Consider going online to sync.");
-					}
-				})
-				.catch(() => {});
-
-			// Check if running on IP host
-			this.isIpHost = /^\d+\.\d+\.\d+\.\d+/.test(window.location.hostname);
-
-			// Initialize manual offline state from cached value
-			this.manualOffline = isManualOffline();
-			if (this.manualOffline) {
-				this.networkOnline = false;
-				this.serverOnline = false;
-				window.serverOnline = false;
-			}
-
-			markSourceLoaded("init");
-		},
-
-		setupEventListeners() {
-			// Listen for POS profile registration
-			if (this.eventBus) {
-				this.eventBus.on("register_pos_profile", (data) => {
-					this.posProfile = data.pos_profile || {};
-					if (navigator.onLine) {
-						this.refreshTaxInclusiveSetting();
-					}
-				});
-
-				// Track last submitted invoice id
-				this.eventBus.on("set_last_invoice", (invoiceId) => {
-					this.lastInvoiceId = invoiceId;
-				});
-
-				this.eventBus.on("data-loaded", (name) => {
-					markSourceLoaded(name);
-				});
-				this.eventBus.on("data-load-progress", ({ name, progress }) => {
-					setSourceProgress(name, progress);
-				});
-
-				// Allow other components to trigger printing
-				this.eventBus.on("print_last_invoice", () => {
-					this.handlePrintLastInvoice();
-				});
-
-				// Manual trigger to sync offline invoices
-				this.eventBus.on("sync_invoices", () => {
-					this.handleSyncInvoices();
-				});
-
-				// Update pending invoice count when other modules emit the change
-				this.eventBus.on("pending_invoices_changed", (count) => {
-					this.pendingInvoices = count;
-				});
-
-				this.eventBus.on("open_purchase_orders", () => {
-					this.setPage("Purchase Order");
-				});
-			}
-
-			// Enhanced server connection status listeners
-			if (frappe.realtime) {
-				frappe.realtime.on("connect", () => {
-					this.serverOnline = true;
-					window.serverOnline = true;
-					this.serverConnecting = false;
-					console.log("Server: Connected via WebSocket");
-					this.$forceUpdate();
-				});
-
-				frappe.realtime.on("disconnect", () => {
-					this.serverOnline = false;
-					window.serverOnline = false;
-					this.serverConnecting = false;
-					console.log("Server: Disconnected from WebSocket");
-					// Trigger connectivity check to verify if it's just WebSocket or full network
-					setTimeout(() => {
-						if (!isManualOffline()) {
-							this.checkNetworkConnectivity();
-						}
-					}, 1000);
-				});
-
-				frappe.realtime.on("connecting", () => {
-					this.serverConnecting = true;
-					console.log("Server: Connecting to WebSocket...");
-					this.$forceUpdate();
-				});
-
-				frappe.realtime.on("reconnect", () => {
-					console.log("Server: Reconnected to WebSocket");
-					window.serverOnline = true;
-					if (!isManualOffline()) {
-						this.checkNetworkConnectivity();
-					}
-				});
-			}
-
-			// Listen for visibility changes to check connectivity when tab becomes active
-			document.addEventListener("visibilitychange", () => {
-				if (!document.hidden && navigator.onLine && !isManualOffline()) {
-					this.checkNetworkConnectivity();
-				}
-			});
 		},
 
 		// Event handlers for navbar events
@@ -413,16 +314,19 @@ export default {
 					});
 				}
 			}
-			this.pendingInvoices = getPendingOfflineInvoiceCount();
-			this.syncTotals = result || this.syncTotals;
+			this.appStore.setPendingInvoices(getPendingOfflineInvoiceCount());
+			if (result) {
+				this.appStore.setSyncTotals(result);
+			}
 		},
 
 		handleToggleOffline() {
 			toggleManualOffline();
-			this.manualOffline = isManualOffline();
-			if (this.manualOffline) {
-				this.networkOnline = false;
-				this.serverOnline = false;
+			const status = isManualOffline();
+			this.appStore.setManualOffline(status);
+			if (status) {
+				this.appStore.setNetworkStatus(false);
+				this.appStore.setServerStatus(false);
 				window.serverOnline = false;
 			} else {
 				this.checkNetworkConnectivity();
@@ -441,11 +345,11 @@ export default {
 		},
 
 		handleRefreshCacheUsage() {
-			this.cacheUsageLoading = true;
+			this.appStore.cacheUsageLoading = true;
 			getCacheUsageEstimate()
 				.then((usage) => {
-					this.cacheUsage = usage.percentage || 0;
-					this.cacheUsageDetails = {
+					this.appStore.cacheUsage = usage.percentage || 0;
+					this.appStore.cacheUsageDetails = {
 						total: usage.total || 0,
 						indexedDB: usage.indexedDB || 0,
 						localStorage: usage.localStorage || 0,
@@ -455,7 +359,7 @@ export default {
 					console.error("Failed to refresh cache usage", e);
 				})
 				.finally(() => {
-					this.cacheUsageLoading = false;
+					this.appStore.cacheUsageLoading = false;
 				});
 		},
 

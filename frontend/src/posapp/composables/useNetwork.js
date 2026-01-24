@@ -1,5 +1,6 @@
 // Network-related composable functions for Home.vue
 import { isManualOffline } from "../../offline/index.js";
+import { useAppStore } from "../stores/appStore.js";
 /* global frappe */
 
 // Debounce variables for network stability
@@ -31,103 +32,92 @@ function getPersistedStatus() {
 }
 
 // Manual retry function (to be called from UI)
-export function manualNetworkRetry(vm) {
-	if (typeof vm.checkNetworkConnectivity === "function") {
-		vm.serverConnecting = true;
-		vm.$forceUpdate();
-		vm.checkNetworkConnectivity().then(() => {
-			vm.serverConnecting = false;
-			vm.$forceUpdate();
-		});
-	}
+export function manualNetworkRetry() {
+	const appStore = useAppStore();
+	appStore.setServerConnecting(true);
+	checkNetworkConnectivity().then(() => {
+		appStore.setServerConnecting(false);
+	});
 }
 
 // Enhanced periodic check with exponential backoff
-function scheduleNextCheck(vm) {
+function scheduleNextCheck() {
+	const appStore = useAppStore();
 	setTimeout(async () => {
 		if (isManualOffline()) {
-			vm.serverConnecting = false;
-			vm.networkOnline = false;
-			vm.serverOnline = false;
+			appStore.setServerConnecting(false);
+			appStore.setNetworkStatus(false);
+			appStore.setServerStatus(false);
 			window.serverOnline = false;
 			persistStatus(false, false);
-			vm.$forceUpdate();
-			scheduleNextCheck(vm);
+			scheduleNextCheck();
 			return;
 		}
-		const shouldShowConnecting = !vm.serverOnline || !vm.networkOnline;
+		const shouldShowConnecting = !appStore.serverOnline || !appStore.networkOnline;
 		if (shouldShowConnecting) {
-			vm.serverConnecting = true;
-			vm.$forceUpdate();
+			appStore.setServerConnecting(true);
 		}
-		await vm.checkNetworkConnectivity();
+		await checkNetworkConnectivity();
 		if (shouldShowConnecting) {
-			vm.serverConnecting = false;
-			vm.$forceUpdate();
+			appStore.setServerConnecting(false);
 		}
 		// If failed, increase interval (up to max)
-		if (!vm.serverOnline) {
+		if (!appStore.serverOnline) {
 			checkInterval = Math.min(checkInterval * 2, MAX_INTERVAL);
 		} else {
 			checkInterval = MIN_INTERVAL; // Reset on success
 		}
-		scheduleNextCheck(vm);
+		scheduleNextCheck();
 	}, checkInterval);
 }
 
 export function setupNetworkListeners() {
+	const appStore = useAppStore();
 	// Listen for network status changes
 	window.addEventListener("online", () => {
 		if (isManualOffline()) return;
-		this.networkOnline = true;
-		this.internetReachable = true;
+		appStore.setNetworkStatus(true);
 		console.log("Network: Online");
 		// Verify actual connectivity
-		this.checkNetworkConnectivity();
+		checkNetworkConnectivity();
 	});
 
 	window.addEventListener("offline", () => {
 		if (isManualOffline()) return;
-		this.networkOnline = false;
-		this.internetReachable = false;
-		this.serverOnline = false;
+		appStore.setNetworkStatus(false);
+		appStore.setServerStatus(false);
 		window.serverOnline = false;
 		console.log("Network: Offline");
-		this.$forceUpdate();
 	});
 
 	// Initial network status from persisted state
 	const persisted = getPersistedStatus();
-	this.networkOnline = persisted.networkOnline;
-	this.serverOnline = persisted.serverOnline;
-	this.internetReachable = false;
-	this.serverConnecting = false;
-	window.serverOnline = this.serverOnline;
+	appStore.setNetworkStatus(persisted.networkOnline);
+	appStore.setServerStatus(persisted.serverOnline);
+	appStore.setServerConnecting(false);
+	window.serverOnline = persisted.serverOnline;
 
 	if (!isManualOffline()) {
-		this.networkOnline = navigator.onLine;
-		this.serverConnecting = true;
-		this.$forceUpdate();
-		this.checkNetworkConnectivity().then(() => {
-			this.serverConnecting = false;
-			this.$forceUpdate();
+		appStore.setNetworkStatus(navigator.onLine);
+		appStore.setServerConnecting(true);
+		checkNetworkConnectivity().then(() => {
+			appStore.setServerConnecting(false);
 		});
 	} else {
-		this.networkOnline = false;
-		this.internetReachable = false;
-		this.serverOnline = false;
+		appStore.setNetworkStatus(false);
+		appStore.setServerStatus(false);
 		window.serverOnline = false;
 		persistStatus(false, false);
 	}
 
 	// Start enhanced periodic check
-	scheduleNextCheck(this);
+	scheduleNextCheck();
 }
 
 export async function checkNetworkConnectivity() {
+	const appStore = useAppStore();
 	try {
 		let isConnected = false;
-		let isInternetReachable = false;
 
 		const deskRequest = fetch("/app", {
 			method: "HEAD",
@@ -166,37 +156,33 @@ export async function checkNetworkConnectivity() {
 			}
 		})();
 
-		const [localResult, internetResult] = await Promise.all([localCheck, externalCheck]);
+		const [localResult] = await Promise.all([localCheck, externalCheck]);
 		isConnected = localResult;
-		isInternetReachable = internetResult;
+		// internetReachable removed as it was unused in store
 
 		// Debounce logic for network/server status
 		if (isConnected) {
 			consecutiveSuccesses++;
 			consecutiveFailures = 0;
 			if (consecutiveSuccesses >= SUCCESS_THRESHOLD) {
-				if (!this.networkOnline || !this.serverOnline) {
-					this.networkOnline = isConnected;
-					this.internetReachable = isInternetReachable;
-					this.serverOnline = true;
+				if (!appStore.networkOnline || !appStore.serverOnline) {
+					appStore.setNetworkStatus(isConnected);
+					appStore.setServerStatus(true);
 					window.serverOnline = true;
-					persistStatus(this.networkOnline, true);
+					persistStatus(isConnected, true);
 					console.log("Network: Connected");
-					this.$forceUpdate();
 				}
 			}
 		} else {
 			consecutiveFailures++;
 			consecutiveSuccesses = 0;
 			if (consecutiveFailures >= FAILURE_THRESHOLD) {
-				if (this.networkOnline || this.serverOnline) {
-					this.networkOnline = isConnected;
-					this.internetReachable = isInternetReachable;
-					this.serverOnline = false;
+				if (appStore.networkOnline || appStore.serverOnline) {
+					appStore.setNetworkStatus(isConnected);
+					appStore.setServerStatus(false);
 					window.serverOnline = false;
-					persistStatus(this.networkOnline, false);
+					persistStatus(isConnected, false);
 					console.log("Network: Disconnected");
-					this.$forceUpdate();
 				}
 			}
 		}
@@ -205,12 +191,10 @@ export async function checkNetworkConnectivity() {
 		consecutiveFailures++;
 		consecutiveSuccesses = 0;
 		if (consecutiveFailures >= FAILURE_THRESHOLD) {
-			this.networkOnline = navigator.onLine;
-			this.internetReachable = false;
-			this.serverOnline = false;
+			appStore.setNetworkStatus(navigator.onLine);
+			appStore.setServerStatus(false);
 			window.serverOnline = false;
-			persistStatus(this.networkOnline, false);
-			this.$forceUpdate();
+			persistStatus(navigator.onLine, false);
 		}
 	}
 }
@@ -228,16 +212,17 @@ export function detectHostType(hostname) {
 }
 
 export async function performConnectivityChecks(hostname, protocol, port) {
+	const appStore = useAppStore();
 	const checks = [];
-	checks.push(this.checkFrappePing());
-	checks.push(this.checkCurrentOrigin(protocol, hostname, port));
+	checks.push(checkFrappePing());
+	checks.push(checkCurrentOrigin(protocol, hostname, port));
 
-	if (!this.isIpHost) {
-		checks.push(this.checkExternalConnectivity());
+	if (!appStore.isIpHost) {
+		checks.push(checkExternalConnectivity());
 	}
 
 	if (frappe.realtime && frappe.realtime.socket) {
-		checks.push(this.checkWebSocketConnectivity());
+		checks.push(checkWebSocketConnectivity());
 	}
 
 	try {
