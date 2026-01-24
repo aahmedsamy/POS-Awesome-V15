@@ -861,7 +861,14 @@ export const useItemsStore = defineStore("items", () => {
 			}
 
 			// Pre-compute search index for performance
-			const searchFields = [item.item_code, item.item_name, item.barcode, item.description];
+			const searchFields = [
+				item.item_code,
+				item.item_name,
+				item.barcode,
+				item.description,
+				item.batch_no, // Always include the item's own batch/serial
+				item.serial_no,
+			];
 
 			if (Array.isArray(item.item_barcode)) {
 				item.item_barcode.forEach((b) => searchFields.push(b?.barcode));
@@ -873,6 +880,7 @@ export const useItemsStore = defineStore("items", () => {
 				item.barcodes.forEach((b) => searchFields.push(b));
 			}
 
+			// Include additional data if enabled
 			if (includeSerial && Array.isArray(item.serial_no_data)) {
 				item.serial_no_data.forEach((s) => searchFields.push(s?.serial_no));
 			}

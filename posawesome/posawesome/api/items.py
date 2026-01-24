@@ -469,6 +469,7 @@ def _build_search_plan(
         normalized_search_value = " ".join(search_words)
 
         resolved_item_code = data.get("item_code")
+        resolved_item_codes = data.get("item_codes")
         base_search_term = resolved_item_code or (longest_search_token or raw_search_value)
         min_search_len = 2
 
@@ -479,10 +480,17 @@ def _build_search_plan(
                     ["item_name", "like", f"{base_search_term}%"],
                     ["item_code", "like", f"%{base_search_term}%"],
                 ]
+                if resolved_item_codes:
+                    or_filters.append(["item_code", "in", resolved_item_codes])
                 item_code_for_search = base_search_term
 
             if len(raw_search_value) < min_search_len:
-                filters["item_code"] = base_search_term
+                if resolved_item_codes:
+                    filters["item_code"] = ["in", resolved_item_codes]
+                else:
+                    filters["item_code"] = base_search_term
+        elif resolved_item_codes:
+            filters["item_code"] = ["in", resolved_item_codes]
         elif resolved_item_code:
             filters["item_code"] = resolved_item_code
 
@@ -1237,46 +1245,48 @@ def get_item_attributes(item_code):
 
 @frappe.whitelist()
 def search_serial_or_batch_or_barcode_number(search_value, search_serial_no=None, search_batch_no=None):
-    """Search for items by serial number, batch number, or barcode."""
-    # Search by barcode
-    barcode_data = frappe.db.get_value(
+    """Search for items by serial number, batch number, or barcode with partial match support."""
+    item_codes = set()
+    
+    # Search by barcode (partial match)
+    barcodes = frappe.get_all(
         "Item Barcode",
-        {"barcode": search_value},
-        ["parent as item_code", "barcode"],
-        as_dict=True,
+        filters={"barcode": ["like", f"%{search_value}%"]},
+        fields=["parent as item_code"]
     )
-    if barcode_data:
-        return {"item_code": barcode_data.item_code, "barcode": barcode_data.barcode}
+    for b in barcodes:
+        item_codes.add(b.item_code)
 
-    # Search by batch number if enabled
+    # Search by batch number if enabled (partial match)
     if search_batch_no:
-        batch_data = frappe.db.get_value(
+        batches = frappe.get_all(
             "Batch",
-            {"name": search_value},
-            ["item as item_code", "name as batch_no"],
-            as_dict=True,
+            filters={"name": ["like", f"%{search_value}%"]},
+            fields=["item as item_code"]
         )
-        if batch_data:
-            return {
-                "item_code": batch_data.item_code,
-                "batch_no": batch_data.batch_no,
-            }
+        for b in batches:
+            item_codes.add(b.item_code)
 
-    # Search by serial number if enabled
+    # Search by serial number if enabled (partial match)
     if search_serial_no:
-        serial_data = frappe.db.get_value(
+        serials = frappe.get_all(
             "Serial No",
-            {"name": search_value},
-            ["item_code", "name as serial_no"],
-            as_dict=True,
+            filters={"name": ["like", f"%{search_value}%"], "status": "Active"},
+            fields=["item_code"]
         )
-        if serial_data:
-            return {
-                "item_code": serial_data.item_code,
-                "serial_no": serial_data.serial_no,
-            }
+        for s in serials:
+            item_codes.add(s.item_code)
 
-    return {}
+    if not item_codes:
+        return {}
+    
+    # For backward compatibility, return first one in 'item_code'
+    # and all in 'item_codes' list
+    res = list(item_codes)
+    return {
+        "item_code": res[0],
+        "item_codes": res
+    }
 
 
 @frappe.whitelist()

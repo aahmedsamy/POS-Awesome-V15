@@ -8,7 +8,7 @@ const BASE_SCHEMA = {
 	keyval: "&key",
 	queue: "&key",
 	cache: "&key",
-	items: "&item_code,item_name,item_group,*barcodes,*name_keywords,*serials,*batches",
+	items: "&item_code,item_name,item_group,batch_no,serial_no,*barcodes,*name_keywords,*serials,*batches",
 	item_prices: "&[price_list+item_code],price_list,item_code",
 	customers: "&name,customer_name,mobile_no,email_id,tax_id",
 	local_stock: "&key",
@@ -139,6 +139,8 @@ db.version(9)
 			console.warn("Failed to persist schema signature", err);
 		}
 	});
+
+db.version(10).stores(BASE_SCHEMA);
 
 export const KEY_TABLE_MAP = {
 	offline_invoices: "queue",
