@@ -811,6 +811,13 @@ export default {
 			const prefix = this.scaleBarcodeSettings?.prefix;
 			return typeof prefix === "string" ? prefix.trim() : "";
 		},
+		scaleBarcodeMatches(value) {
+			const prefix = this.getScaleBarcodePrefix();
+			if (!prefix) {
+				return false;
+			}
+			return String(value || "").startsWith(prefix);
+		},
 
 		async fetchServerItemsTimestamp() {
 			try {
