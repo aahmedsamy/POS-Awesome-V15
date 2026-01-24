@@ -88,10 +88,10 @@ export async function getCachedPriceListItems(priceList, ttl = 24 * 60 * 60 * 10
 				const price = p.price_list_rate ?? p.rate ?? 0;
 				return it
 					? {
-						...it,
-						rate: price,
-						price_list_rate: price,
-					}
+							...it,
+							rate: price,
+							price_list_rate: price,
+						}
 					: null;
 			})
 			.filter(Boolean);
@@ -271,6 +271,8 @@ export async function searchStoredItems({ search = "", itemGroup = "", limit = 1
 			words[0] || "",
 		);
 
+		console.log("[offline/items.js] searchStoredItems", { search, itemGroup, words, primaryWord });
+
 		const matchesAllWords = (item) => {
 			if (!words.length) {
 				return true;
@@ -322,6 +324,12 @@ export async function searchStoredItems({ search = "", itemGroup = "", limit = 1
 			handleArray(item.batch_no_data, (batch) => batch && batch.batch_no);
 			handleArray(item.batches);
 
+			// Add extra check for item_name keywords if name_keywords is missing
+			if (!item.name_keywords && item.item_name) {
+				const names = item.item_name.toLowerCase().split(/\s+/).filter(Boolean);
+				names.forEach((n) => pushValue(n));
+			}
+
 			const attributes = item.item_attributes;
 			if (Array.isArray(attributes)) {
 				attributes.forEach((attr) => {
@@ -351,7 +359,9 @@ export async function searchStoredItems({ search = "", itemGroup = "", limit = 1
 			return collection;
 		};
 
+		let results = [];
 		if (primaryWord) {
+			// Try to use indexed queries first for performance
 			let collection = db
 				.table("items")
 				.where("item_code")
@@ -361,43 +371,43 @@ export async function searchStoredItems({ search = "", itemGroup = "", limit = 1
 				.or("barcodes")
 				.equalsIgnoreCase(primaryWord)
 				.or("name_keywords")
-				.startsWithIgnoreCase(primaryWord)
-				.or("serials")
-				.equalsIgnoreCase(primaryWord)
-				.or("batches")
-				.equalsIgnoreCase(primaryWord);
+				.startsWithIgnoreCase(primaryWord);
 
-			collection = applyItemGroupFilter(collection);
+			results = await collection.toArray();
 
-			let results = await collection.toArray();
+			// Apply group filter and word matching
+			results = applyItemGroupFilter(results);
 			results = results.filter(matchesAllWords);
 
 			if (!results.length) {
-				let fallback = applyItemGroupFilter(db.table("items"));
-				results = await fallback.filter(matchesAllWords).toArray();
+				console.log("[offline/items.js] No indexed results, trying full table scan");
+				// Full scan as fallback if indexed query fails to find anything
+				let fallback = db.table("items");
+				let allItems = await fallback.toArray();
+				results = applyItemGroupFilter(allItems);
+				results = results.filter(matchesAllWords);
 			}
-
-			if (!results.length) {
-				return [];
-			}
-
-			const map = new Map();
-			results.forEach((item) => {
-				if (!map.has(item.item_code)) {
-					map.set(item.item_code, item);
-				}
-			});
-
-			const unique = Array.from(map.values());
-			return unique.slice(offset, offset + limit);
+		} else {
+			let collection = applyItemGroupFilter(db.table("items"));
+			results = await collection.offset(offset).limit(limit).toArray();
+			console.log("[offline/items.js] No search term, returning paged results", results.length);
+			return results;
 		}
 
-		let collection = applyItemGroupFilter(db.table("items"));
-		if (words.length) {
-			collection = collection.filter(matchesAllWords);
+		if (!results.length) {
+			return [];
 		}
-		const res = await collection.offset(offset).limit(limit).toArray();
-		return res;
+
+		const map = new Map();
+		results.forEach((item) => {
+			if (!map.has(item.item_code)) {
+				map.set(item.item_code, item);
+			}
+		});
+
+		const unique = Array.from(map.values());
+		console.log("[offline/items.js] Final unique results", unique.length);
+		return unique.slice(offset, offset + limit);
 	} catch (e) {
 		console.error("Failed to query stored items", e);
 		return [];

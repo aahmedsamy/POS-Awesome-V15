@@ -11,6 +11,7 @@ import {
 	saveItemDetailsCache,
 	isStockCacheReady,
 	getItemsLastSync,
+	isOffline,
 	getAllStoredItems,
 	getStoredItemsCount,
 	searchStoredItems,
@@ -169,11 +170,11 @@ export const useItemsStore = defineStore("items", () => {
 	});
 
 	const shouldUseIndexedSearch = () => {
-		if (limitSearchEnabled.value) {
+		if (limitSearchEnabled.value && !isOffline()) {
 			return false;
 		}
 
-		return Boolean(posProfile.value?.posa_local_storage);
+		return Boolean(posProfile.value?.posa_local_storage) || isOffline();
 	};
 
 	const shouldPersistItems = () => {
@@ -464,17 +465,31 @@ export const useItemsStore = defineStore("items", () => {
 					typeof itemGroup.value === "string" && itemGroup.value.length > 0
 						? itemGroup.value
 						: "ALL";
+
+				console.log("[itemsStore] Performing indexed search", { term, normalizedGroup });
+
 				const results = await searchStoredItems({
 					search: term,
 					itemGroup: normalizedGroup,
-					limit: cachedPagination.value.pageSize,
+					limit: 200, // Search results shouldn't need massive pagination initially
 					offset: 0,
 				});
 
 				searchResults = Array.isArray(results) ? results : [];
+
+				if (searchResults.length === 0 && items.value.length > 0) {
+					console.log("[itemsStore] No indexed results, falling back to local memory search");
+					searchResults = performLocalSearch(term, items.value);
+				}
+
+				// Update pagination state for search
 				cachedPagination.value.search = term;
+				cachedPagination.value.group = normalizedGroup;
 				cachedPagination.value.offset = searchResults.length;
+				// total is hard to know without another query, so we use result length as floor
 				cachedPagination.value.total = Math.max(cachedPagination.value.total, searchResults.length);
+
+				console.log("[itemsStore] Indexed search results", searchResults.length);
 			} else {
 				// Search in current items first
 				// Optimization: Refine from previous results if applicable to avoid O(N) scan
@@ -851,8 +866,8 @@ export const useItemsStore = defineStore("items", () => {
 			return filterItemsByGroup(itemList, itemGroup.value);
 		}
 
-		const searchTerm = term.toLowerCase();
-		const searchTerms = searchTerm.split(/\s+/).filter(Boolean);
+		const searchTermLower = term.toLowerCase();
+		const searchTerms = searchTermLower.split(/\s+/).filter(Boolean);
 
 		return itemList.filter((item) => {
 			if (!item) {
@@ -879,7 +894,9 @@ export const useItemsStore = defineStore("items", () => {
 
 			// Note: Dynamic checking of serial/batch here is slow, but this is a fallback
 			// ideally all items should have _search_index
-			return fields.filter(Boolean).some((field) => String(field).toLowerCase().includes(searchTerm));
+			return fields
+				.filter(Boolean)
+				.some((field) => String(field).toLowerCase().includes(searchTermLower));
 		});
 	};
 
