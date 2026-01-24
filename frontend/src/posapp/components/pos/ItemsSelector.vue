@@ -310,6 +310,7 @@ export default {
 		customer: "",
 		items_view: "list",
 		// Limit the displayed items to avoid overly large lists
+		search_backup: "",
 		itemsPerPage: 50,
 		offersCount: 0,
 		appliedOffersCount: 0,
@@ -410,11 +411,6 @@ export default {
 	}),
 
 	watch: {
-		search_input(newValue) {
-			this.first_search = newValue;
-			this.clearHighlightedItem();
-			this.search_onchange();
-		},
 		customer: _.debounce(function () {
 			if (!this.customer) {
 				this.lastInvoiceRates = {};
@@ -552,15 +548,16 @@ export default {
 		},
 		displayedItems(new_value, old_value) {
 			// Update item details if items changed
-			// Check if we should trigger search
-			if (newLen >= 3) {
-				// Call without arguments so search_onchange treats it like an Enter key/Auto trigger
-				this.search_onchange();
-			} else if (oldLen >= 3 && newLen === 0) {
-				// Reset items only when search is fully cleared
-				this.clearSearch();
+			if (!this.usesLimitSearch && new_value.length !== old_value.length) {
+				this.update_items_details(new_value);
 			}
-		}, 300),
+			this.$nextTick(() => {
+				this.checkItemContainerOverflow();
+				this.scheduleCardMetricsUpdate();
+			});
+			this.scheduleLastInvoiceRateRefresh();
+			this.syncHighlightedItem();
+		},
 
 		// Refresh item prices whenever the user changes currency
 		selected_currency() {
@@ -918,7 +915,7 @@ export default {
 			if (reset) {
 				this.currentPage = 0;
 				await this.loadItems({
-					searchValue: this.get_search(this.first_search),
+					searchValue: this.get_search(this.search_input),
 					groupFilter: this.item_group,
 					limit: this.usesLimitSearch ? this.limitSearchCap : undefined,
 				});
@@ -1347,8 +1344,8 @@ export default {
 			this.lastInvoiceRates = {};
 
 			// 2. Reset search if empty to ensure full load
-			if (!this.first_search || !this.first_search.trim()) {
-				this.first_search = "";
+			if (!this.search_input || !this.search_input.trim()) {
+				this.search_input = "";
 				this.search = "";
 			}
 
@@ -1454,7 +1451,7 @@ export default {
 				}
 			}
 
-			const searchValue = this.get_search(this.first_search);
+			const searchValue = this.get_search(this.search_input);
 			const normalizedGroup =
 				typeof this.item_group === "string" && this.item_group.length > 0 ? this.item_group : "ALL";
 
@@ -1509,7 +1506,7 @@ export default {
 				return Promise.resolve([]);
 			}
 
-			const normalizedSearch = this.get_search(this.first_search || "").trim();
+			const normalizedSearch = this.get_search(this.search_input || "").trim();
 
 			this.isBackgroundLoading = true;
 
@@ -1793,7 +1790,7 @@ export default {
 			}
 		},
 		async enter_event(scannedCode) {
-			const searchTerm = scannedCode || this.first_search;
+			const searchTerm = scannedCode || this.search_input;
 			await this.ensureScaleBarcodeSettings();
 			if (!this.displayedItems.length || !searchTerm) {
 				return;
@@ -2545,7 +2542,7 @@ export default {
 			// indicate this search came from a scanner
 			this.search_from_scanner = true;
 			// apply scanned code as search term
-			this.first_search = sCode;
+			this.search_input = sCode;
 			this.search = sCode;
 			this.pendingScanCode = sCode;
 
@@ -2569,25 +2566,9 @@ export default {
 					this.clearSearch();
 					this.focusItemSearch();
 				}
-			});
-		},
-		generateWordCombinations(inputString) {
-			const words = inputString.split(" ");
-			const wordCount = words.length;
-			const combinations = [];
-
-			// Helper function to generate all permutations
-			function permute(arr, m = []) {
-				if (arr.length === 0) {
-					combinations.push(m.join(" "));
-				} else {
-					for (let i = 0; i < arr.length; i++) {
-						const current = arr.slice();
-						const next = current.splice(i, 1);
-
 		restoreSearch() {
-			if (this.first_search === "") {
-				this.first_search = this.search_backup;
+			if (this.search_input === "") {
+				this.search_input = this.search_backup;
 				this.search = this.search_backup;
 				// No need to reload items when focus is lost
 			}
@@ -3264,7 +3245,7 @@ export default {
 					return;
 				}
 
-				this.first_search = scannedCode;
+				this.search_input = scannedCode;
 				this.search = scannedCode;
 				this.showScanError({
 					message: `${this.__("Item not found")}: ${scannedCode}`,
@@ -3274,7 +3255,7 @@ export default {
 				return;
 			} catch (e) {
 				console.error("Error fetching item from barcode:", e);
-				this.first_search = scannedCode;
+				this.search_input = scannedCode;
 				this.search = scannedCode;
 				this.showScanError({
 					message: `${this.__("Item not found")}: ${scannedCode}`,
@@ -3621,7 +3602,7 @@ export default {
 		handleItemNotFound(scannedCode) {
 			console.warn("Item not found for scanned code:", scannedCode);
 
-			this.first_search = scannedCode;
+			this.search_input = scannedCode;
 			this.search = scannedCode;
 			this.showScanError({
 				message: `${this.__("Item not found")}: ${scannedCode}`,
@@ -4073,7 +4054,7 @@ export default {
 			// while waiting for the store debounce. However, doing so with a full array scan is expensive.
 			// We trust the store to be the source of truth.
 
-			const searchTerm = this.get_search(this.first_search).trim().toLowerCase();
+			const searchTerm = this.get_search(this.search_input).trim().toLowerCase();
 			const activeStoreSearch = (this.search || "").trim().toLowerCase();
 
 			// Check if we need to apply local search filtering
@@ -4155,10 +4136,10 @@ export default {
 		},
 		debounce_search: {
 			get() {
-				return this.first_search;
+				return this.search_input;
 			},
 			set: _.debounce(function (newValue) {
-				this.first_search = newValue || "";
+				this.search_input = newValue || "";
 			}, 200),
 		},
 		debounce_qty: {
