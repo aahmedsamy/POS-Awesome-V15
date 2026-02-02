@@ -12,7 +12,43 @@ from frappe.query_builder.functions import Sum
 from frappe.utils import flt, nowdate
 from frappe.utils.caching import redis_cache
 
-from posawesome.posawesome.api.items import get_bulk_committed_qty_from_pos_invoices
+def get_bulk_committed_qty_from_pos_invoices(item_codes, warehouses):
+    """Return committed quantities for multiple items from submitted but unconsolidated POS Invoices.
+
+    Args:
+        item_codes: List of item codes to check
+        warehouses: List of warehouses to check
+
+    Returns:
+        dict: {item_code: committed_qty}
+    """
+
+    if not item_codes or not warehouses:
+        return {}
+
+    pos_invoice = DocType("POS Invoice")
+    pos_invoice_item = DocType("POS Invoice Item")
+
+    query = (
+        frappe.qb.from_(pos_invoice)
+        .join(pos_invoice_item)
+        .on(pos_invoice_item.parent == pos_invoice.name)
+        .select(
+            pos_invoice_item.item_code,
+            Sum(pos_invoice_item.stock_qty).as_("committed_qty")
+        )
+        .where(pos_invoice.docstatus == 1)
+        .where(
+            (pos_invoice.consolidated_invoice.isnull())
+            | (pos_invoice.consolidated_invoice == "")
+        )
+        .where(pos_invoice_item.item_code.isin(item_codes))
+        .where(pos_invoice_item.warehouse.isin(warehouses))
+        .groupby(pos_invoice_item.item_code)
+    )
+
+    rows = query.run(as_dict=True)
+    return {r.item_code: flt(r.committed_qty) for r in rows}
 
 
 def _resolve_cache_ttl(ttl: Optional[int]) -> int:

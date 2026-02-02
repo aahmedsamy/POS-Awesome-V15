@@ -19,7 +19,11 @@ from frappe.utils import cint, cstr, flt, get_datetime, nowdate
 from frappe.utils.background_jobs import enqueue
 from frappe.utils.caching import redis_cache
 
-from .item_fetchers import ItemDetailAggregator, get_batches
+from .item_fetchers import (
+    ItemDetailAggregator,
+    get_batches,
+    get_bulk_committed_qty_from_pos_invoices,
+)
 from .utils import (
     HAS_VARIANTS_EXCLUSION,
     expand_item_groups,
@@ -258,45 +262,6 @@ def get_bulk_stock_availability(items):
             results[(code, warehouse, "")] = flt(actual - committed)
 
     return results
-
-
-def get_bulk_committed_qty_from_pos_invoices(item_codes, warehouses):
-    """Return committed quantities for multiple items from submitted but unconsolidated POS Invoices.
-
-    Args:
-        item_codes: List of item codes to check
-        warehouses: List of warehouses to check
-
-    Returns:
-        dict: {item_code: committed_qty}
-    """
-
-    if not item_codes or not warehouses:
-        return {}
-
-    pos_invoice = DocType("POS Invoice")
-    pos_invoice_item = DocType("POS Invoice Item")
-
-    query = (
-        frappe.qb.from_(pos_invoice)
-        .join(pos_invoice_item)
-        .on(pos_invoice_item.parent == pos_invoice.name)
-        .select(
-            pos_invoice_item.item_code,
-            Sum(pos_invoice_item.stock_qty).as_("committed_qty")
-        )
-        .where(pos_invoice.docstatus == 1)
-        .where(
-            (pos_invoice.consolidated_invoice.isnull())
-            | (pos_invoice.consolidated_invoice == "")
-        )
-        .where(pos_invoice_item.item_code.isin(item_codes))
-        .where(pos_invoice_item.warehouse.isin(warehouses))
-        .groupby(pos_invoice_item.item_code)
-    )
-
-    rows = query.run(as_dict=True)
-    return {r.item_code: flt(r.committed_qty) for r in rows}
 
 
 @frappe.whitelist()
